@@ -44,7 +44,7 @@ jobs:
           name: run tests
           command: |
             . venv/bin/activate
-            jupyter nbconvert --to notebook --execute fmriprep_stats.ipynb --output fmriprep_stats.ipynb
+            jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 fmriprep_stats.ipynb --output fmriprep_stats.ipynb
 
       - store_artifacts:
           path: test-reports
