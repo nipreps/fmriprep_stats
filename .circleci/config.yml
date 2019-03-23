@@ -51,7 +51,7 @@ jobs:
             git add fmriprep_stats.ipynb
             git commit -m "updating stats"
             git push https://${GITHUB_TOKEN}@github.com/poldracklab/fmriprep_stats.git master
-          no_output_timeout: 60m 
+          no_output_timeout: 120m 
 
       - store_artifacts:
           path: test-reports
