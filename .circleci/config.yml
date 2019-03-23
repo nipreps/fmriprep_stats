@@ -44,9 +44,9 @@ jobs:
           name: run tests
           command: |
             . venv/bin/activate
-            jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 fmriprep_stats.ipynb --output fmriprep_stats.ipynb
+            jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 fmriprep_stats.ipynb --inplace --debug
             git config credential.helper 'cache --timeout=120'
-            git config user.email "stast@bot.com"
+            git config user.email "stats@bot.com"
             git config user.name "stats-bot"
             git add fmriprep_stats.ipynb
             git commit -m "updating stats"
