@@ -22,13 +22,7 @@
 #
 """CLI."""
 import click
-from datetime import date
 
-ISSUES = {
-    "success": "758615130",
-    "started": "540334560",
-    "failed": "848853674",
-}
 
 @click.group()
 @click.version_option(message="fMRIPrep stats")
@@ -42,10 +36,8 @@ def get(limit):
     from api import get_events
 
     # Get events
-    for key, issue in ISSUES.items():
-        get_events(issue, limit=limit).to_csv(
-            f"{date.today().strftime('%Y%m%d')}_{key}.tsv", sep="\t", index=None,
-        )
+    for event in ("started", "success", "failed"):
+        get_events(event, limit=limit)
 
 
 if __name__ == "__main__":

@@ -23,14 +23,21 @@
 """Fetching fMRIPrep statistics from Sentry."""
 import os
 import requests
-import pandas as pd
 import datetime
-from pandas import json_normalize
+from pymongo import MongoClient
+
+ISSUES = {
+    "success": "758615130",
+    "started": "540334560",
+    "failed": "848853674",
+    "no_disk": "767302904",
+    "sigkill": "854282951",
+}
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
 
-def get_events(issue_id, token=None, limit=None):
+def get_events(event_name, token=None, limit=None):
     """Retrieve events."""
 
     token = token or os.getenv("SENTRY_TOKEN", None)
@@ -38,8 +45,11 @@ def get_events(issue_id, token=None, limit=None):
     if token is None:
         raise RuntimeError("Token must be provided")
 
-    all_events = []
-    results = True
+    issue_id = ISSUES[event_name]
+
+    # Initiate session
+    db_client = MongoClient()
+    db = db_client.fmriprep_stats
     url = f"https://sentry.io/api/0/issues/{issue_id}/events/?query="
     counter = 0
     while limit is None or counter < limit:
@@ -52,9 +62,19 @@ def get_events(issue_id, token=None, limit=None):
 
         print(".", end="", flush=True)
         for event in events_json:
-            for tag in event["tags"]:
-                if tag["key"] == "environment" and tag["value"] in ("prod",):
-                    all_events.append(event)
+            if {'key': 'environment', 'value': 'prod'} in event["tags"]:
+                event.update({
+                    f"{tag['key'].replace('.', '_')}": tag["value"]
+                    for tag in event.pop("tags")
+                })
+                event.pop("environment", None)
+
+                db[event_name].update_one(
+                    filter={"id": event["id"]},
+                    update={"$setOnInsert": event},
+                    upsert=True,
+                )
+
         cursor = (
             r.headers["Link"].split(",")[1].split(";")[3].split("=")[1].replace('"', "")
         )
@@ -70,20 +90,3 @@ def get_events(issue_id, token=None, limit=None):
         )
         url = new_url
         counter += 1
-
-    for e in all_events:
-        e["tags"] = dict([(a["key"], a["value"]) for a in e["tags"]])
-
-    all_events_df = json_normalize(all_events)
-
-    all_events_df.dateCreated = pd.to_datetime(all_events_df.dateCreated)
-
-    all_events_df["date_minus_time"] = all_events_df["dateCreated"].apply(
-        lambda df: datetime.datetime(year=df.year, month=df.month, day=df.day)
-    )
-    all_events_df["date_minus_time"] = all_events_df[
-        "date_minus_time"
-    ] - pd.to_timedelta(7, unit="d")
-    all_events_df.set_index(all_events_df["date_minus_time"], inplace=True)
-
-    return all_events_df

@@ -1,3 +1,4 @@
+pymongo
 pandas
 matplotlib
 seaborn
