@@ -24,6 +24,7 @@
 import os
 import requests
 import datetime
+from urllib.parse import quote_plus
 from pymongo import MongoClient
 
 ISSUES = {
@@ -37,7 +38,7 @@ ISSUES = {
 epoch = datetime.datetime.utcfromtimestamp(0)
 
 
-def get_events(event_name, token=None, limit=None):
+def get_events(event_name, token=None, limit=None, mongo_user=None, mongo_password=None):
     """Retrieve events."""
 
     token = token or os.getenv("SENTRY_TOKEN", None)
@@ -48,7 +49,13 @@ def get_events(event_name, token=None, limit=None):
     issue_id = ISSUES[event_name]
 
     # Initiate session
-    db_client = MongoClient()
+    db_client = (
+        MongoClient() if mongo_password is None
+        else MongoClient(
+            f"mongodb+srv://{quote_plus(mongo_user)}:{quote_plus(mongo_password)}"
+            "@sentrybackup.sywajav.mongodb.net/?retryWrites=true&w=majority"
+        )
+    )
     db = db_client.fmriprep_stats
     url = f"https://sentry.io/api/0/issues/{issue_id}/events/?query="
     counter = 0
