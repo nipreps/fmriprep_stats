@@ -32,12 +32,18 @@ def cli():
 
 @cli.command()
 @click.option("-l", "--limit", type=click.IntRange(min=1), default=None)
-def get(limit):
+@click.option("--mongo-user", envvar="MONGO_USERNAME", type=str, default=None)
+@click.password_option(
+    "--mongo-password",
+    envvar="MONGO_PASSWORD",
+    default=None,
+)
+def get(limit, mongo_password, mongo_user):
     from api import get_events
 
     # Get events
     for event in ("started", "success", "failed"):
-        get_events(event, limit=limit)
+        get_events(event, limit=limit, mongo_password=mongo_password, mongo_user=mongo_user)
 
 
 if __name__ == "__main__":
