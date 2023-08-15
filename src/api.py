@@ -22,6 +22,8 @@
 #
 """Fetching fMRIPrep statistics from Sentry."""
 import os
+from time import sleep
+from warnings import warn
 import requests
 import datetime
 from pymongo import MongoClient
@@ -37,7 +39,7 @@ ISSUES = {
 epoch = datetime.datetime.utcfromtimestamp(0)
 
 
-def get_events(event_name, token=None, limit=None):
+def get_events(event_name, token=None, limit=None, max_errors=10):
     """Retrieve events."""
 
     token = token or os.getenv("SENTRY_TOKEN", None)
@@ -52,15 +54,23 @@ def get_events(event_name, token=None, limit=None):
     db = db_client.fmriprep_stats
     url = f"https://sentry.io/api/0/issues/{issue_id}/events/?query="
     counter = 0
+    n_errors = 0
+
     while limit is None or counter < limit:
         r = requests.get(url, headers={"Authorization": "Bearer %s" % token})
 
-        if r.ok:
-            events_json = r.json()
-        else:
-            raise RuntimeError(f"Error {r.status}")
+        if not r.ok:
+            warn(f"Request failed with status {r.status_code}")
+            if n_errors >= max_errors:
+               exit(n_errors + 1)
 
+            n_errors += 1
+            sleep(n_errors)
+            continue
+
+        events_json = r.json()
         print(".", end="", flush=True)
+
         for event in events_json:
             if {'key': 'environment', 'value': 'prod'} in event["tags"]:
                 event.update({
