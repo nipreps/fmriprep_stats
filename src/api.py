@@ -23,7 +23,6 @@
 """Fetching fMRIPrep statistics from Sentry."""
 import os
 from time import sleep
-from warnings import warn
 import requests
 import datetime
 from pymongo import MongoClient
@@ -39,7 +38,19 @@ ISSUES = {
 epoch = datetime.datetime.utcfromtimestamp(0)
 
 
-def get_events(event_name, token=None, limit=None, max_errors=10):
+def filter_new(event, collection):
+    cached = collection.count_documents(filter={"id": event["id"]})
+
+    if not cached:
+        event.update({
+            f"{tag['key'].replace('.', '_')}": tag["value"]
+            for tag in event.pop("tags")
+        })
+        event.pop("environment", None)
+        return event
+
+
+def get_events(event_name, token=None, limit=None, max_errors=10, cached_limit=10):
     """Retrieve events."""
 
     token = token or os.getenv("SENTRY_TOKEN", None)
@@ -54,36 +65,44 @@ def get_events(event_name, token=None, limit=None, max_errors=10):
     db = db_client.fmriprep_stats
     url = f"https://sentry.io/api/0/issues/{issue_id}/events/?query="
     counter = 0
-    n_errors = 0
+    errors = []
 
+    consecutive_cached = 0
     while limit is None or counter < limit:
         r = requests.get(url, headers={"Authorization": "Bearer %s" % token})
 
         if not r.ok:
-            warn(f"Request failed with status {r.status_code}")
-            if n_errors >= max_errors:
-               exit(n_errors + 1)
+            print("E", end="", flush=True)
+            errors.append(f"{r.status_code}")
+            if len(errors) >= max_errors:
+                print(f"Too many errors: {', '.join(errors)}")
+                exit(1)
 
-            n_errors += 1
-            sleep(n_errors)
+            sleep(len(errors) + 1)
             continue
 
-        events_json = r.json()
-        print(".", end="", flush=True)
+        events_json = [
+            event for event in r.json()
+            if {'key': 'environment', 'value': 'prod'} in event["tags"]
+        ]
 
-        for event in events_json:
-            if {'key': 'environment', 'value': 'prod'} in event["tags"]:
-                event.update({
-                    f"{tag['key'].replace('.', '_')}": tag["value"]
-                    for tag in event.pop("tags")
-                })
-                event.pop("environment", None)
+        new_documents = [
+            document
+            for event in events_json
+            if (document := filter_new(event, db[event_name])) is not None
 
-                db[event_name].update_one(
-                    filter={"id": event["id"]},
-                    update={"$setOnInsert": event},
-                    upsert=True,
-                )
+        ]
+
+        if new_documents:
+            print(".", end="", flush=True)
+            db[event_name].insert_many(new_documents)
+            consecutive_cached = 0
+        else:
+            print("c", end="", flush=True)
+            consecutive_cached += 1
+
+        if consecutive_cached >= cached_limit:
+            break
 
         cursor = (
             r.headers["Link"].split(",")[1].split(";")[3].split("=")[1].replace('"', "")
@@ -100,3 +119,8 @@ def get_events(event_name, token=None, limit=None, max_errors=10):
         )
         url = new_url
         counter += 1
+
+    print("")
+
+    if errors:
+        print(f"Encountered {len(errors)} error(s): {', '.join(errors)}.")

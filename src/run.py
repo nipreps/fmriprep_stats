@@ -22,6 +22,7 @@
 #
 """CLI."""
 import click
+from api import get_events, ISSUES
 
 
 @click.group()
@@ -32,12 +33,20 @@ def cli():
 
 @cli.command()
 @click.option("-l", "--limit", type=click.IntRange(min=1), default=None)
-def get(limit):
-    from api import get_events
+@click.option("-L", "--cached-limit", type=click.IntRange(min=1), default=1000)
+@click.option(
+    "-m",
+    "--event",
+    type=click.Choice(ISSUES.keys(), case_sensitive=False),
+    multiple=True,
+    default=("started", "success", "failed"),
+)
+def get(limit, cached_limit, event):
 
     # Get events
-    for event in ("started", "success", "failed"):
-        get_events(event, limit=limit)
+    for _ev in event:
+        print(f"Getting '{_ev}' events")
+        get_events(_ev, limit=limit, cached_limit=cached_limit)
 
 
 if __name__ == "__main__":
