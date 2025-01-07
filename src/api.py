@@ -22,6 +22,7 @@
 #
 """Fetching fMRIPrep statistics from Sentry."""
 import os
+import sys
 from time import sleep
 import requests
 import datetime
@@ -75,7 +76,7 @@ def get_events(event_name, token=None, limit=None, max_errors=10, cached_limit=1
             print("E", end="", flush=True)
             errors.append(f"{r.status_code}")
             if len(errors) >= max_errors:
-                print(f"Too many errors: {', '.join(errors)}")
+                print(f"Too many errors: {', '.join(errors)}", file=sys.stderr)
                 exit(1)
 
             sleep(len(errors) + 1)
