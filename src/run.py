@@ -21,6 +21,8 @@
 #     https://www.nipreps.org/community/licensing/
 #
 """CLI."""
+from datetime import datetime
+
 import click
 from api import get_events, ISSUES
 
@@ -42,11 +44,14 @@ def cli():
     default=("started", "success", "failed"),
 )
 def get(limit, cached_limit, event):
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S [Started]"))
 
     # Get events
     for _ev in event:
-        print(f"Getting '{_ev}' events")
+        print(f"{_ev}:", end="", flush=True)
         get_events(_ev, limit=limit, cached_limit=cached_limit)
+    
+    print(datetime.now().strftime("%Y-%m-%d %H:%M:%S [Stopped]"))
 
 
 if __name__ == "__main__":
