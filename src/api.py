@@ -92,10 +92,10 @@ def fetch_window(
         if cursor:
             url = base_url + f"&cursor={cursor}"
 
-        r = requests.get(url, headers=headers)
-        if r.status_code == 429:
+        req = requests.get(url, headers=headers)
+        if req.status_code == 429:
             # parse Retry‑After or use exponential backoff
-            wait = int(r.headers.get("Retry-After", 2**errors))
+            wait = int(req.headers.get("Retry-After", 2**errors))
             sleep(wait + 0.1)
             errors += 1
             if errors > max_errors:
@@ -103,18 +103,22 @@ def fetch_window(
                 print(f"[{event_name}][{window_start}] too many 429s; abort")
                 break
             continue
-        elif not r.ok:
+        elif not req.ok:
             errors += 1
             if errors > max_errors:
                 print("")
-                print(f"[{event_name}][{window_start}] errors: {r.status_code}; abort")
+                print(
+                    f"[{event_name}][{window_start}] errors: {req.status_code}; abort"
+                )
                 break
             sleep(errors)  # simple backoff
             continue
 
         errors = 0
         events = [
-            e for e in r.json() if {"key": "environment", "value": "prod"} in e["tags"]
+            e
+            for e in req.json()
+            if {"key": "environment", "value": "prod"} in e["tags"]
         ]
         new_docs = [filter_new(e, db) for e in events]
         new_docs = [d for d in new_docs if d]
@@ -131,7 +135,7 @@ def fetch_window(
                 break
 
         # look at Link header for next cursor or end
-        link_header = r.headers.get("Link", "")
+        link_header = req.headers.get("Link", "")
         next_link = None
         if link_header:
             for link in parse_header_links(link_header):
@@ -165,10 +169,10 @@ def parallel_fetch(
         max_workers = os.cpu_count()
 
     windows = []
-    cur = since
-    while cur < until:
-        nxt = min(cur + datetime.timedelta(days=days_per_chunk), until)
-        windows.append((cur, nxt))
+    cur = until
+    while cur > since:
+        nxt = max(cur - datetime.timedelta(days=days_per_chunk), since)
+        windows.append((nxt, cur))
         cur = nxt
 
     kwargs = {

@@ -49,16 +49,23 @@ def cli():
     help="Which Sentry issues to fetch",
 )
 @click.option(
-    "-s",
-    "--since",
+    "-S",
+    "--start-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
     default=None,
     help=f"Start date (inclusive) in YYYY-MM-DD; defaults to {DEFAULT_DAYS_WINDOW} days ago",
 )
 @click.option(
-    "-u",
-    "--until",
+    "-E",
+    "--end-date",
     type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="End date (exclusive) in YYYY-MM-DD; defaults to today",
+)
+@click.option(
+    "-D",
+    "--days",
+    type=int,
     default=None,
     help="End date (exclusive) in YYYY-MM-DD; defaults to today",
 )
@@ -80,7 +87,7 @@ def cli():
     "-M", "--max-errors", type=click.IntRange(min=1), default=DEFAULT_MAX_ERRORS
 )
 @click.option("-L", "--cached-limit", type=click.IntRange(min=1), default=None)
-def get(event, since, until, chunk_days, jobs, max_errors, cached_limit):
+def get(event, start_date, end_date, days, chunk_days, jobs, max_errors, cached_limit):
     """Fetch events in parallel using time-window chunking."""
 
     token = os.getenv("SENTRY_TOKEN")
@@ -90,18 +97,50 @@ def get(event, since, until, chunk_days, jobs, max_errors, cached_limit):
 
     now = datetime.now(timezone.utc)
 
-    since = since or (now - timedelta(days=DEFAULT_DAYS_WINDOW))
-    until = until or now
+    if start_date and days:
+        click.echo("Warning: overriding --start-date because --days was present")
+        start_date = None
 
-    click.echo(f"{now:%Y-%m-%d %H:%M:%S} [Started]")
+    if start_date:
+        start_date = datetime(
+            year=start_date.year,
+            month=start_date.month,
+            day=start_date.day,
+            hour=now.hour,
+            minute=now.minute,
+            second=now.second,
+            microsecond=now.microsecond,
+            tzinfo=now.tzinfo,
+        )
+    if end_date:
+        end_date = datetime(
+            year=end_date.year,
+            month=end_date.month,
+            day=end_date.day,
+            hour=now.hour,
+            minute=now.minute,
+            second=now.second,
+            microsecond=now.microsecond,
+            tzinfo=now.tzinfo,
+        )
+    else:
+        end_date = now
+
+    start_date = start_date or (end_date - timedelta(days=days or DEFAULT_DAYS_WINDOW))
+    start_date += timedelta(microseconds=1)
+
+    click.echo(
+        f"{now:%Y-%m-%d %H:%M:%S} [Started] "
+        f"from: {start_date:%Y-%m-%d %H:%M:%S}, to: {end_date:%Y-%m-%d %H:%M:%S}"
+    )
 
     # Get events
     for ev in event:
         parallel_fetch(
             event_name=ev,
             token=token,
-            since=since,
-            until=until,
+            since=start_date,
+            until=end_date,
             days_per_chunk=chunk_days,
             max_workers=jobs,
             cached_limit=cached_limit,
