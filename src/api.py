@@ -41,10 +41,19 @@ ISSUES = {
 }
 
 
-def filter_new(event, collection):
-    cached = collection.count_documents(filter={"id": event["id"]})
+def filter_new(events, collection):
+    """Return the subset of *events* not already cached in *collection*."""
 
-    if not cached:
+    ids = [e["id"] for e in events]
+    if not ids:
+        return []
+
+    cached_ids = set(collection.distinct("id", {"id": {"$in": ids}}))
+
+    new_docs = []
+    for event in events:
+        if event["id"] in cached_ids:
+            continue
         event.update(
             {
                 f"{tag['key'].replace('.', '_')}": tag["value"]
@@ -52,7 +61,9 @@ def filter_new(event, collection):
             }
         )
         event.pop("environment", None)
-        return event
+        new_docs.append(event)
+
+    return new_docs
 
 
 def _to_sentry_time(dt):
@@ -78,6 +89,7 @@ def fetch_window(
     )
 
     db = MongoClient().fmriprep_stats[event_name]
+    db.create_index("id", unique=True)
     cursor = None
     errors = 0
     consecutive_cached = 0
@@ -120,8 +132,7 @@ def fetch_window(
             for e in req.json()
             if {"key": "environment", "value": "prod"} in e["tags"]
         ]
-        new_docs = [filter_new(e, db) for e in events]
-        new_docs = [d for d in new_docs if d]
+        new_docs = filter_new(events, db)
 
         new_records += len(new_docs)
         total_records += len(events)
