@@ -26,6 +26,7 @@ import os
 import sys
 from time import sleep
 import requests
+from requests.utils import parse_header_links
 import datetime
 from pymongo import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -130,14 +131,18 @@ def fetch_window(
                 break
 
         # look at Link header for next cursor or end
-        link = r.headers.get("Link", "")
-        if 'results="false"' in link:
+        link_header = r.headers.get("Link", "")
+        next_link = None
+        if link_header:
+            for link in parse_header_links(link_header):
+                if link.get("rel") == "next":
+                    next_link = link
+                    break
+
+        if not next_link or next_link.get("results") == "false":
             break
-        # naive parse of cursor—tweak to your needs
-        try:
-            cursor = link.split("cursor=")[-1].split('"')[1]
-        except Exception:
-            break
+
+        cursor = next_link.get("cursor")
 
     return new_records, total_records
 
