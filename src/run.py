@@ -28,7 +28,8 @@ from datetime import datetime, timezone, timedelta
 
 import click
 from api import parallel_fetch, ISSUES, DEFAULT_MAX_ERRORS
-from viz import load_event, plot_performance, plot_version_stream
+from db import load_event, massage_versions
+from viz import plot_performance, plot_version_stream
 
 DEFAULT_DAYS_WINDOW = 90
 DEFAULT_CHUNK_DAYS = 1
@@ -163,7 +164,9 @@ def plot(output_dir, drop_cutoff):
     unique_success = load_event("success")
 
     plot_performance(unique_started, unique_success, drop_cutoff=drop_cutoff, out_file=out_perf)
-    plot_version_stream(unique_started, unique_success, drop_cutoff=drop_cutoff, out_file=out_ver)
+
+    started_v, success_v = massage_versions(unique_started, unique_success)
+    plot_version_stream(started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver)
     click.echo(f"Saved plots to {output_dir}")
 
 
