@@ -31,6 +31,15 @@ python src/run.py --help
 
 for a description of all available options.
 
+Running:
+
+```bash
+python src/run.py plot
+```
+
+will generate the performance and version stream plots using the records stored
+in MongoDB.
+
 ## MongoDB backup script
 
 `scripts/backup_mongodb.sh` dumps a MongoDB database to a Dropbox-synced
@@ -42,4 +51,3 @@ Make it executable before scheduling it with `cron`:
 ```bash
 chmod +x scripts/backup_mongodb.sh
 ```
-
