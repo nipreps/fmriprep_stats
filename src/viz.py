@@ -9,6 +9,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.interpolate import RBFInterpolator
 
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = 'Inter Tight'
 
 # -----------------------------------------------------------------------------
 # Helper utilities copied from the notebook
@@ -29,9 +31,6 @@ _vparse = np.vectorize(_parse)
 # -----------------------------------------------------------------------------
 # Plotting functions
 # -----------------------------------------------------------------------------
-
-
-
 
 def plot_performance(
     unique_started: pd.DataFrame,
