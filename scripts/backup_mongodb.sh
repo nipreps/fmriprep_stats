@@ -48,6 +48,10 @@ fi
 # Dump the database
 mongodump "${dump_opts[@]}"
 
+# Create compressed tarball and remove dump directory
+tar -czf "${BACKUP_PATH}.tar.gz" -C "$BACKUP_DIR" "db_backup_${DATE}"
+rm -rf "$BACKUP_PATH"
+
 # Stop mongod if we started it
 if [ "$started_mongod" = true ]; then
     echo "Stopping mongod..."
