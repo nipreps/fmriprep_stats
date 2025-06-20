@@ -164,10 +164,11 @@ def plot(output_dir, drop_cutoff):
     unique_success = load_event("success")
 
     plot_performance(unique_started, unique_success, drop_cutoff=drop_cutoff, out_file=out_perf)
+    click.echo(f"Saved {out_perf}.")
 
     started_v, success_v = massage_versions(unique_started, unique_success)
     plot_version_stream(started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver)
-    click.echo(f"Saved plots to {output_dir}")
+    click.echo(f"Saved {out_ver}")
 
 
 if __name__ == "__main__":
