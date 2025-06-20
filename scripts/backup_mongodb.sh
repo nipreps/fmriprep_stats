@@ -11,10 +11,8 @@ if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
 fi
 
-# Require credentials via environment variables
+# DBNAME is required; credentials are optional
 : "${DBNAME:?Set DBNAME, e.g., export DBNAME=your_db}"
-: "${MONGO_USER:?Set MONGO_USER, e.g., export MONGO_USER=username}"
-: "${MONGO_PASS:?Set MONGO_PASS, e.g., export MONGO_PASS=password}"
 
 DATE=$(date +%Y-%m-%d)
 BACKUP_DIR="$HOME/Dropbox/backups"
@@ -38,10 +36,17 @@ else
     started_mongod=true
 fi
 
+# Build mongodump options
+dump_opts=(--db "$DBNAME" --out "$BACKUP_PATH")
+if [ -n "${MONGO_USER:-}" ]; then
+    dump_opts+=(--username "$MONGO_USER")
+fi
+if [ -n "${MONGO_PASS:-}" ]; then
+    dump_opts+=(--password "$MONGO_PASS")
+fi
+
 # Dump the database
-mongodump --db "$DBNAME" \
-    --username "$MONGO_USER" --password "$MONGO_PASS" \
-    --out "$BACKUP_PATH"
+mongodump "${dump_opts[@]}"
 
 # Stop mongod if we started it
 if [ "$started_mongod" = true ]; then

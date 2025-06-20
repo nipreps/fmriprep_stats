@@ -43,13 +43,14 @@ Make it executable before scheduling it with `cron`:
 chmod +x scripts/backup_mongodb.sh
 ```
 
-Store credentials in environment variables rather than editing the script.
-You may create a file named `~/.mongodb_backup_env` with content like:
+Store `DBNAME` (and optional credentials) in environment variables rather than
+editing the script.  You may create a file named `~/.mongodb_backup_env` with
+content like:
 
 ```bash
 export DBNAME=mydb
-export MONGO_USER=myuser
-export MONGO_PASS=mypassword
+# export MONGO_USER=myuser
+# export MONGO_PASS=mypassword
 ```
 
 The backup script will source this file if present.
