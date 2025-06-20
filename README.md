@@ -42,15 +42,17 @@ in MongoDB.
 
 ## MongoDB backup script
 
-`scripts/backup_mongodb.sh` dumps a MongoDB database to a Dropbox-synced
-folder. The script starts `mongod` if it is not running and stops it again
-when the backup finishes (if it was started by the script).
+`scripts/backup_mongodb.sh` dumps a MongoDB database and creates a compressed
+`db_backup_YYYY-MM-DD.tar.gz` file in a Dropbox-synced folder. The script
+starts `mongod` if it is not running and stops it again when the backup
+finishes (if it was started by the script).
 
 Make it executable before scheduling it with `cron`:
 
 ```bash
 chmod +x scripts/backup_mongodb.sh
 ```
+
 Store `DBNAME` (and optional credentials) in environment variables rather than
 editing the script.  You may create a file named `~/.mongodb_backup_env` with
 content like:
@@ -62,3 +64,24 @@ export DBNAME="fmriprep_stats"
 ```
 
 The backup script will source this file if present.
+
+## Weekly plot update script
+
+`scripts/update_plots.sh` generates plots with `src/run.py plot` and pushes them
+to a clone of the `nipreps.github.io` website. The path to that clone can be
+given as an argument and defaults to `$HOME/workspace/nipreps.github.io`.
+The script may be run from any directory and validates that the target is a Git
+repository.
+
+Make the script executable:
+
+```bash
+chmod +x scripts/update_plots.sh
+```
+
+To run it every Monday at 5 AM, add this line to your crontab:
+
+```
+0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh >>/tmp/update_plots.log 2>&1
+```
+
