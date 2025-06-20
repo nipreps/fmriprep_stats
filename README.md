@@ -48,7 +48,7 @@ editing the script.  You may create a file named `~/.mongodb_backup_env` with
 content like:
 
 ```bash
-export DBNAME=mydb
+export DBNAME="fmriprep_stats"
 # export MONGO_USER=myuser
 # export MONGO_PASS=mypassword
 ```
