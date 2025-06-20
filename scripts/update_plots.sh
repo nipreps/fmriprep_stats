@@ -4,14 +4,17 @@
 
 set -euo pipefail
 
-REPO_DIR="${1:-$HOME/workspace/nipreps.github.io}"
-ASSETS_DIR="$REPO_DIR/docs/assets"
+REPO_URL="${1:-git@github.com:nipreps/nipreps.github.io.git}"
+TMP_REPO="$(mktemp -d)"
 
-if [ ! -d "$REPO_DIR/.git" ]; then
-    echo "Error: $REPO_DIR is not a git repository" >&2
-    exit 1
-fi
+cleanup() {
+    rm -rf "$TMP_REPO"
+}
+trap cleanup EXIT
 
+git clone "$REPO_URL" "$TMP_REPO"
+
+ASSETS_DIR="$TMP_REPO/docs/assets"
 mkdir -p "$ASSETS_DIR"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,7 +22,7 @@ cd "$SCRIPT_DIR/.."
 
 python src/run.py plot -o "$ASSETS_DIR"
 
-cd "$REPO_DIR"
+cd "$TMP_REPO"
 git pull --ff-only
 git add docs/assets
 if ! git diff --cached --quiet; then
