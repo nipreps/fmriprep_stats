@@ -15,7 +15,7 @@ fi
 : "${DBNAME:?Set DBNAME, e.g., export DBNAME=your_db}"
 
 DATE=$(date +%Y-%m-%d)
-BACKUP_DIR="$HOME/Dropbox/backups"
+BACKUP_DIR="$HOME/Dropbox/fmriprep_stats"
 BACKUP_PATH="$BACKUP_DIR/db_backup_${DATE}"
 
 mkdir -p "$BACKUP_DIR"
