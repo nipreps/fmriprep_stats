@@ -30,3 +30,27 @@ python src/run.py --help
 ```
 
 for a description of all available options.
+
+## MongoDB backup script
+
+`scripts/backup_mongodb.sh` dumps a MongoDB database to a Dropbox-synced
+folder. The script starts `mongod` if it is not running and stops it again
+when the backup finishes (if it was started by the script).
+
+Make it executable before scheduling it with `cron`:
+
+```bash
+chmod +x scripts/backup_mongodb.sh
+```
+
+Store credentials in environment variables rather than editing the script.
+You may create a file named `~/.mongodb_backup_env` with content like:
+
+```bash
+export DBNAME=mydb
+export MONGO_USER=myuser
+export MONGO_PASS=mypassword
+```
+
+The backup script will source this file if present.
+
