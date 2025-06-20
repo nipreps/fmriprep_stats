@@ -68,10 +68,11 @@ The backup script will source this file if present.
 ## Weekly plot update script
 
 `scripts/update_plots.sh` generates plots with `src/run.py plot` and pushes them
-to a clone of the `nipreps.github.io` website. The path to that clone can be
-given as an argument and defaults to `$HOME/workspace/nipreps.github.io`.
-The script may be run from any directory and validates that the target is a Git
-repository.
+to the `nipreps.github.io` website. The script clones the repository to a
+temporary directory (by default using `git@github.com:nipreps/nipreps.github.io.git`),
+writes the plots there, commits and pushes the changes, and removes the
+temporary clone.  You may pass an alternative repository URL as an argument.
+The script may be run from any directory.
 
 Make the script executable:
 
