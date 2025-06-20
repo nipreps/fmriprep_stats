@@ -82,6 +82,6 @@ chmod +x scripts/update_plots.sh
 To run it every Monday at 5 AM, add this line to your crontab:
 
 ```
-0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh >>/tmp/update_plots.log 2>&1
+0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh 2>> $HOME/var/logs/update_plots.err >> $HOME/var/logs/update_plots.log
 ```
 
