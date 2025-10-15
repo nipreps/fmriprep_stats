@@ -86,3 +86,23 @@ To run it every Monday at 5 AM, add this line to your crontab:
 0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh 2>> $HOME/var/log/update_plots.err >> $HOME/var/log/update_plots.log
 ```
 
+## Migrating from MongoDB
+
+`scripts/migrate_mongo_to_parquet.py` streams the MongoDB collections into the
+partitioned Parquet layout consumed by the new tooling. Run it before switching
+workflows so that `_manifest.parquet` already knows which events have been
+ingested:
+
+```bash
+python scripts/migrate_mongo_to_parquet.py \
+  --mongo-uri mongodb://localhost:27017 \
+  --db-name fmriprep_stats \
+  /path/to/dataset
+```
+
+The script buffers up to 1,000 events (one Parquet file) at a time by default.
+Reduce `--batch-size` if you are memory-constrained or increase it on beefier
+machines to reduce the number of tiny Parquet files. Re-running the migration
+is safe: the manifest tracks event IDs and stops duplicates—we tested a
+double-run and the second invocation reported no new rows.
+

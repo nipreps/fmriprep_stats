@@ -1,7 +1,9 @@
 pymongo
 pandas
+pyarrow
 matplotlib
 seaborn
 notebook
 nbconvert
+click
 requests

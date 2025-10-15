@@ -24,14 +24,20 @@
 
 import os
 import sys
+from pathlib import Path
 from time import sleep
-import requests
-from requests.utils import parse_header_links
+from typing import Dict, Iterable, Optional, Set
+
 import datetime
-from pymongo import MongoClient
+import pandas as pd
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pymongo import MongoClient
+from requests.utils import parse_header_links
 
 DEFAULT_MAX_ERRORS = 5
+_MANIFEST_FILENAME = "_manifest.parquet"
+_MANIFEST_COLUMNS = ["event", "id", "date", "path"]
 ISSUES = {
     "success": "758615130",
     "started": "540334560",
@@ -39,6 +45,105 @@ ISSUES = {
     "no_disk": "767302904",
     "sigkill": "854282951",
 }
+
+
+def _normalize_event(event: Dict) -> Dict:
+    """Flatten a raw Sentry event for storage."""
+
+    normalized = dict(event)
+    normalized.pop("_id", None)
+
+    tags = normalized.pop("tags", []) or []
+    for tag in tags:
+        key = tag.get("key")
+        if not key:
+            continue
+        normalized[key.replace(".", "_")] = tag.get("value")
+
+    normalized.pop("environment", None)
+
+    if "id" in normalized and normalized["id"] is not None:
+        normalized["id"] = str(normalized["id"])
+
+    return normalized
+
+
+def _event_date(event: Dict) -> Optional[datetime.date]:
+    """Return the calendar date to use for partitioning."""
+
+    for key in ("dateCreated", "date_received", "dateReceived", "date"):
+        value = event.get(key)
+        if value is None:
+            continue
+
+        if isinstance(value, datetime.datetime):
+            dt_value = value
+        elif isinstance(value, datetime.date) and not isinstance(value, datetime.datetime):
+            dt_value = datetime.datetime.combine(
+                value, datetime.time.min, tzinfo=datetime.timezone.utc
+            )
+        elif isinstance(value, str):
+            try:
+                dt_value = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+        else:
+            continue
+
+        if dt_value.tzinfo is None:
+            dt_value = dt_value.replace(tzinfo=datetime.timezone.utc)
+        else:
+            dt_value = dt_value.astimezone(datetime.timezone.utc)
+
+        return dt_value.date()
+
+    return None
+
+
+def _partition_path(dataset_root: Path, event_name: str, date: datetime.date) -> Path:
+    """Return the Parquet partition directory for *event_name* on *date*."""
+
+    return Path(dataset_root) / event_name / f"date={date:%Y-%m-%d}"
+
+
+def _manifest_path(dataset_root: Path) -> Path:
+    return Path(dataset_root) / _MANIFEST_FILENAME
+
+
+def _load_manifest(manifest_path: Path) -> pd.DataFrame:
+    if Path(manifest_path).exists():
+        return pd.read_parquet(manifest_path)
+    return pd.DataFrame(columns=_MANIFEST_COLUMNS)
+
+
+def _write_manifest(manifest_path: Path, manifest: pd.DataFrame) -> None:
+    manifest_path = Path(manifest_path)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    manifest.reset_index(drop=True).to_parquet(tmp_path, index=False)
+    tmp_path.replace(manifest_path)
+
+
+def _load_manifest_cache(manifest: pd.DataFrame) -> Dict[str, Set[str]]:
+    cache: Dict[str, Set[str]] = {name: set() for name in ISSUES}
+
+    if manifest is None or manifest.empty:
+        return cache
+
+    grouped = manifest.groupby("event")
+    for event, group in grouped:
+        cache[event] = set(group["id"].astype(str))
+
+    return cache
+
+
+def _update_manifest_cache(cache: Dict[str, Set[str]], rows: Iterable[Dict]) -> None:
+    for row in rows:
+        event = row.get("event")
+        identifier = row.get("id")
+        if not event or identifier is None:
+            continue
+        cache.setdefault(event, set()).add(str(identifier))
 
 
 def filter_new(events, collection):
