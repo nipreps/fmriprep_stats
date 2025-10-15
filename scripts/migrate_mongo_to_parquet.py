@@ -9,7 +9,7 @@ import shutil
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import DefaultDict, Dict, Iterable, List
+from typing import Any, DefaultDict, Dict, Iterable, List
 
 import click
 import pandas as pd
@@ -40,10 +40,62 @@ class PartitionTarget:
         return self.partition_dir / self.filename
 
 
+def _is_expandable(value: Any) -> bool:
+    """Return ``True`` if *value* should be expanded into scalar columns."""
+
+    return isinstance(value, (dict, list, tuple))
+
+
+def _flatten_nested(value: Any) -> Any:
+    """Recursively convert nested *value* into a dict keyed by indices."""
+
+    if isinstance(value, dict):
+        return {key: _flatten_nested(val) for key, val in value.items()}
+
+    if isinstance(value, (list, tuple)):
+        return {str(idx): _flatten_nested(val) for idx, val in enumerate(value)}
+
+    return value
+
+
+def _expand_nested_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Expand list- or dict-typed columns in *frame* into scalar columns."""
+
+    for column in list(frame.columns):
+        series = frame[column]
+        mask = series.apply(_is_expandable)
+
+        if not mask.any():
+            continue
+
+        prepared_rows = [
+            _flatten_nested(value) if expand else {}
+            for value, expand in zip(series.tolist(), mask.tolist())
+        ]
+        expanded = pd.json_normalize(prepared_rows, sep=".")
+
+        if not expanded.empty:
+            expanded.index = series.index
+            expanded = expanded.add_prefix(f"{column}.")
+            frame = frame.join(expanded)
+
+        if mask.all():
+            frame = frame.drop(columns=[column])
+        else:
+            frame.loc[mask, column] = None
+
+    return frame
+
+
 def _normalize_records(records: Iterable[Dict]) -> pd.DataFrame:
     """Return a flattened dataframe for *records*."""
 
-    return pd.json_normalize(list(records), sep=".")
+    frame = pd.json_normalize(list(records), sep=".")
+
+    if frame.empty:
+        return frame
+
+    return _expand_nested_columns(frame)
 
 
 def _partition_target(
