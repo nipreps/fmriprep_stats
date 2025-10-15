@@ -100,9 +100,15 @@ python scripts/migrate_mongo_to_parquet.py \
   /path/to/dataset
 ```
 
-The script buffers up to 1,000 events (one Parquet file) at a time by default.
-Reduce `--batch-size` if you are memory-constrained or increase it on beefier
-machines to reduce the number of tiny Parquet files. Re-running the migration
-is safe: the manifest tracks event IDs and stops duplicates—we tested a
+Events are grouped by calendar day (the default) so that each
+`date=YYYY-MM-DD` directory contains a single part file named
+`part-YYYY-MM-DD_<hash>.parquet`. Pass `--partition-frequency week` if you
+prefer larger weekly files such as `week=2024-03-04/part-2024-W10_<hash>.parquet`.
+
+The script buffers up to 1,000 events before spilling to a temporary directory
+inside the dataset root. At the end of the run it rewrites each affected Parquet
+file once, so choose a smaller `--batch-size` if you are memory-constrained or a
+larger size when working with SSD-backed storage. Re-running the migration is
+safe: the manifest tracks event IDs and stops duplicates—we tested a
 double-run and the second invocation reported no new rows.
 
