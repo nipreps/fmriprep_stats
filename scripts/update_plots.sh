@@ -20,7 +20,7 @@ mkdir -p "$ASSETS_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-python src/run.py plot -o "$ASSETS_DIR"
+$( which conda ) run -n base src/run.py plot -o "$ASSETS_DIR"
 
 cd "$TMP_REPO"
 git pull --ff-only
