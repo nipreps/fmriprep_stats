@@ -86,3 +86,47 @@ To run it every Monday at 5 AM, add this line to your crontab:
 0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh 2>> $HOME/var/log/update_plots.err >> $HOME/var/log/update_plots.log
 ```
 
+## Migrating from MongoDB
+
+The repository provides `scripts/migrate_mongo_to_parquet.py` to export
+collections from MongoDB into Parquet files. Each issue collection is streamed
+in batches and normalized with the same helpers used by the fetching CLI. Rows
+that are missing identifiers or timestamps are skipped, while valid records are
+written as `<dataset-root>/<event>/<YYYY-MM-DD>.parquet`. A manifest file named
+`_manifest.parquet` is updated atomically so re-running the script is
+idempotent. Example usage:
+
+```bash
+python scripts/migrate_mongo_to_parquet.py \
+  --mongo-uri mongodb://localhost:27017 \
+  --db fmriprep_stats \
+  --dataset-root /data/fmriprep-parquet \
+  --start-date 2022-01-01 --end-date 2022-02-01
+```
+
+Use the `--collections` flag to focus on a subset of issues while debugging,
+and adjust `--batch-size` (default: 1000) if you need to reduce memory pressure
+or better utilize fast disks. Streaming ensures only a day’s worth of data is
+held in memory, but exporting a large history still requires several gigabytes
+of temporary disk space for Parquet files.
+
+After the first migration you can re-run the script with the same arguments to
+confirm idempotency—the manifest ensures previously written partitions are
+skipped so duplicates are avoided.
+
+## Updating plots from Parquet exports
+
+Once a Parquet dataset exists you can generate plots without MongoDB. Either
+use `src/run.py plot --dataset-root /path/to/dataset` directly or run the
+`scripts/update_plots_parquet.sh` helper, which mirrors `update_plots.sh` but
+injects the dataset path:
+
+```bash
+chmod +x scripts/update_plots_parquet.sh
+scripts/update_plots_parquet.sh /data/fmriprep-parquet
+```
+
+This script accepts an optional repository URL (defaults to
+`git@github.com:nipreps/nipreps.github.io.git`) and otherwise behaves like the
+original weekly plot updater.
+

@@ -4,10 +4,23 @@
 from __future__ import annotations
 
 import datetime
-from typing import Tuple
+from pathlib import Path
+from typing import Tuple, Union
 
 import pandas as pd
 from pymongo import MongoClient
+
+
+def _prepare_dataframe(data: pd.DataFrame, unique: bool = True) -> pd.DataFrame:
+    if "dateCreated" in data.columns:
+        data["dateCreated"] = pd.to_datetime(data["dateCreated"])
+    if "dateCreated" in data.columns:
+        data["date_minus_time"] = data["dateCreated"].apply(
+            lambda df: datetime.datetime(year=df.year, month=df.month, day=df.day)
+        )
+    if unique and "run_uuid" in data.columns:
+        data = data.drop_duplicates(subset=["run_uuid"])
+    return data
 
 
 def load_event(event_name: str, unique: bool = True) -> pd.DataFrame:
@@ -16,14 +29,28 @@ def load_event(event_name: str, unique: bool = True) -> pd.DataFrame:
     data = pd.DataFrame(list(db[event_name].find()))
     if len(data) == 0:
         raise RuntimeError(f"No records of event '{event_name}'")
+    return _prepare_dataframe(data, unique=unique)
 
-    data["dateCreated"] = pd.to_datetime(data["dateCreated"])
-    data["date_minus_time"] = data["dateCreated"].apply(
-        lambda df: datetime.datetime(year=df.year, month=df.month, day=df.day)
-    )
-    if unique:
-        data = data.drop_duplicates(subset=["run_uuid"])
-    return data
+
+def load_event_from_parquet(
+    dataset_root: Union[str, Path], event_name: str, unique: bool = True
+) -> pd.DataFrame:
+    """Load event records stored as Parquet files."""
+
+    dataset_root = Path(dataset_root)
+    event_dir = dataset_root / event_name
+    if not event_dir.exists():
+        raise RuntimeError(f"No Parquet export found for '{event_name}' in {dataset_root}")
+
+    files = sorted(event_dir.glob("*.parquet"))
+    if not files:
+        raise RuntimeError(
+            f"No Parquet files found for '{event_name}' under {event_dir}"
+        )
+
+    frames = [pd.read_parquet(path) for path in files]
+    data = pd.concat(frames, ignore_index=True)
+    return _prepare_dataframe(data, unique=unique)
 
 
 def massage_versions(

@@ -28,7 +28,7 @@ from datetime import datetime, timezone, timedelta
 
 import click
 from api import parallel_fetch, ISSUES, DEFAULT_MAX_ERRORS
-from db import load_event, massage_versions
+from db import load_event, load_event_from_parquet, massage_versions
 from viz import plot_performance, plot_version_stream
 
 DEFAULT_DAYS_WINDOW = 90
@@ -152,16 +152,32 @@ def get(event, start_date, end_date, days, chunk_days, jobs, max_errors, cached_
 
 
 @cli.command()
-@click.option("-o", "--output-dir", type=click.Path(file_okay=False, dir_okay=True, writable=True), default=".")
+@click.option(
+    "-o",
+    "--output-dir",
+    type=click.Path(file_okay=False, dir_okay=True, writable=True),
+    default=".",
+)
 @click.option("--drop-cutoff", default=None, help="Ignore versions older than this")
-def plot(output_dir, drop_cutoff):
-    """Generate plots using records stored in MongoDB."""
+@click.option(
+    "--dataset-root",
+    type=click.Path(file_okay=False, dir_okay=True),
+    default=None,
+    help="Read Parquet exports from this directory instead of MongoDB.",
+)
+def plot(output_dir, drop_cutoff, dataset_root):
+    """Generate plots using records stored in MongoDB or Parquet exports."""
     today = datetime.now().date().strftime("%Y%m%d")
     out_perf = os.path.join(output_dir, f"{today}_weekly.png")
     out_ver = os.path.join(output_dir, f"{today}_versionstream.png")
 
-    unique_started = load_event("started")
-    unique_success = load_event("success")
+    if dataset_root:
+        loader = lambda name: load_event_from_parquet(dataset_root, name)
+    else:
+        loader = load_event
+
+    unique_started = loader("started")
+    unique_success = loader("success")
 
     plot_performance(unique_started, unique_success, drop_cutoff=drop_cutoff, out_file=out_perf)
     click.echo(f"Saved {out_perf}.")

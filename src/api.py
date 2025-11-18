@@ -25,9 +25,13 @@
 import os
 import sys
 from time import sleep
+import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Set, Union
+
+import pandas as pd
 import requests
 from requests.utils import parse_header_links
-import datetime
 from pymongo import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -39,6 +43,137 @@ ISSUES = {
     "no_disk": "767302904",
     "sigkill": "854282951",
 }
+
+MANIFEST_FILENAME = "_manifest.parquet"
+
+
+def _sanitize_key(key: str) -> str:
+    return key.replace(" ", "_").replace(".", "_")
+
+
+def _flatten(prefix: str, value: Any, dest: Dict[str, Any]) -> None:
+    if isinstance(value, dict):
+        for sub_key, sub_value in value.items():
+            new_key = _sanitize_key(f"{prefix}_{sub_key}" if prefix else sub_key)
+            _flatten(new_key, sub_value, dest)
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            new_key = _sanitize_key(f"{prefix}_{index}")
+            _flatten(new_key, item, dest)
+        return
+    dest[_sanitize_key(prefix)] = value
+
+
+def _normalize_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for key, value in event.items():
+        if key == "tags":
+            continue
+        if key == "_id":
+            normalized["_id"] = str(value)
+            continue
+        _flatten(key, value, normalized)
+
+    tags = event.get("tags", []) or []
+    for tag in tags:
+        tag_key = _sanitize_key(tag.get("key", ""))
+        if tag_key:
+            normalized[tag_key] = tag.get("value")
+
+    normalized.pop("environment", None)
+    return normalized
+
+
+def _coerce_datetime(value: Any) -> Optional[datetime.datetime]:
+    if isinstance(value, datetime.datetime):
+        if not value.tzinfo:
+            return value.replace(tzinfo=datetime.timezone.utc)
+        return value
+    if not value:
+        return None
+    if isinstance(value, str):
+        txt = value.strip()
+        if txt.endswith("Z"):
+            txt = txt[:-1] + "+00:00"
+        try:
+            return datetime.datetime.fromisoformat(txt)
+        except ValueError:
+            return None
+    return None
+
+
+def _event_date(event: Dict[str, Any]) -> Optional[datetime.date]:
+    for key in ("dateCreated", "timestamp", "received", "datetime"):
+        dt = _coerce_datetime(event.get(key))
+        if dt:
+            return dt.date()
+    return None
+
+
+def _partition_path(dataset_root: Union[Path, str], event_name: str, day: datetime.date) -> Path:
+    root = Path(dataset_root)
+    return root / event_name / f"{day.isoformat()}.parquet"
+
+
+def _manifest_path(dataset_root: Union[Path, str]) -> Path:
+    return Path(dataset_root) / MANIFEST_FILENAME
+
+
+def _read_manifest(dataset_root: Union[Path, str]) -> pd.DataFrame:
+    manifest_file = _manifest_path(dataset_root)
+    if not manifest_file.exists():
+        return pd.DataFrame(columns=["event", "date", "path", "rows", "min_id", "max_id"])
+    return pd.read_parquet(manifest_file)
+
+
+def _existing_manifest_paths(dataset_root: Union[Path, str]) -> Set[str]:
+    manifest = _read_manifest(dataset_root)
+    if manifest.empty:
+        return set()
+    return set(manifest["path"].astype(str))
+
+
+def _write_manifest(dataset_root: Union[Path, str], entries: Iterable[Dict[str, Any]]) -> None:
+    entries = list(entries)
+    if not entries:
+        return
+
+    manifest_file = _manifest_path(dataset_root)
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_manifest(dataset_root)
+    df_new = pd.DataFrame(entries)
+    merged = pd.concat([existing, df_new], ignore_index=True)
+    tmp_path = manifest_file.with_suffix(".tmp")
+    merged.to_parquet(tmp_path, index=False)
+    tmp_path.replace(manifest_file)
+
+
+class ManifestCache:
+    def __init__(self, dataset_root: Union[Path, str], flush_threshold: int = 10) -> None:
+        self.dataset_root = Path(dataset_root)
+        self.flush_threshold = max(1, flush_threshold)
+        self._cache: List[Dict[str, Any]] = []
+        self._seen_paths: Set[str] = _existing_manifest_paths(self.dataset_root)
+
+    @property
+    def seen_paths(self) -> Set[str]:
+        return self._seen_paths
+
+    def add(self, entry: Dict[str, Any]) -> None:
+        path_key = entry.get("path")
+        if path_key in self._seen_paths:
+            return
+        self._cache.append(entry)
+        if len(self._cache) >= self.flush_threshold:
+            self.flush()
+
+    def flush(self) -> None:
+        if not self._cache:
+            return
+        _write_manifest(self.dataset_root, self._cache)
+        self._seen_paths.update(entry["path"] for entry in self._cache)
+        self._cache.clear()
 
 
 def filter_new(events, collection):
