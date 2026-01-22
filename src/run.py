@@ -27,9 +27,16 @@ import sys
 from datetime import datetime, timezone, timedelta
 
 import click
-from api import parallel_fetch, ISSUES, DEFAULT_MAX_ERRORS
-from db import load_event, massage_versions
-from viz import plot_performance, plot_version_stream
+import pandas as pd
+from .api import (
+    DEFAULT_MAX_ERRORS,
+    DEFAULT_TIMEOUT,
+    ISSUES,
+    fetch_window_events,
+    parallel_fetch,
+)
+from .db import load_event, massage_versions
+from .viz import plot_performance, plot_version_stream
 
 DEFAULT_DAYS_WINDOW = 90
 DEFAULT_CHUNK_DAYS = 1
@@ -169,6 +176,77 @@ def plot(output_dir, drop_cutoff):
     started_v, success_v = massage_versions(unique_started, unique_success)
     plot_version_stream(started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver)
     click.echo(f"Saved {out_ver}")
+
+
+@cli.command()
+@click.option(
+    "-m",
+    "--event",
+    type=click.Choice(ISSUES.keys(), case_sensitive=False),
+    multiple=True,
+    default=("started", "success", "failed"),
+    help="Which Sentry issues to fetch",
+)
+@click.option(
+    "--date",
+    required=True,
+    help="UTC date to fetch in YYYYMMDD format.",
+)
+@click.option(
+    "-o",
+    "--output",
+    type=click.Path(dir_okay=False, writable=True),
+    required=True,
+    help="Path to write the parquet file.",
+)
+@click.option(
+    "--timeout",
+    type=click.IntRange(min=1),
+    default=DEFAULT_TIMEOUT,
+    help="HTTP request timeout in seconds.",
+)
+@click.option("-M", "--max-errors", type=click.IntRange(min=1), default=DEFAULT_MAX_ERRORS)
+def parquet(event, date, output, timeout, max_errors):
+    """Fetch events for a UTC day and store them in a parquet file."""
+
+    token = os.getenv("SENTRY_TOKEN")
+    if not token:
+        click.echo("ERROR: SENTRY_TOKEN environment variable not set", err=True)
+        sys.exit(1)
+
+    try:
+        target_date = datetime.strptime(date, "%Y%m%d")
+    except ValueError as exc:
+        raise click.BadParameter("--date must be in YYYYMMDD format.") from exc
+
+    window_start = target_date.replace(tzinfo=timezone.utc)
+    window_end = window_start + timedelta(days=1)
+
+    all_events = []
+    for event_name in event:
+        records = fetch_window_events(
+            event_name,
+            token,
+            window_start,
+            window_end,
+            max_errors=max_errors,
+            timeout=timeout,
+        )
+        for record in records:
+            record["status"] = event_name
+        all_events.extend(records)
+
+    if all_events:
+        columns = sorted({key for record in all_events for key in record.keys()})
+        df = pd.DataFrame(all_events, columns=columns)
+    else:
+        df = pd.DataFrame(columns=["status"])
+
+    output_dir = os.path.dirname(output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    df.to_parquet(output, index=False)
 
 
 if __name__ == "__main__":

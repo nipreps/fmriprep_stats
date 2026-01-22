@@ -34,7 +34,7 @@ jobs:
         env:
           SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
         run: |
-          python -m src.daily_parquet_export \
+          python -m src.run parquet \
             --date "$RUN_DATE" \
             --output "artifacts/${RUN_DATE}.parquet"
 

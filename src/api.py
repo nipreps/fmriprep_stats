@@ -26,12 +26,14 @@ import os
 import sys
 from time import sleep
 import requests
+from requests import exceptions as requests_exceptions
 from requests.utils import parse_header_links
 import datetime
 from pymongo import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DEFAULT_MAX_ERRORS = 5
+DEFAULT_TIMEOUT = 60
 ISSUES = {
     "success": "758615130",
     "started": "540334560",
@@ -54,13 +56,7 @@ def filter_new(events, collection):
     for event in events:
         if event["id"] in cached_ids:
             continue
-        event.update(
-            {
-                f"{tag['key'].replace('.', '_')}": tag["value"]
-                for tag in event.pop("tags")
-            }
-        )
-        event.pop("environment", None)
+        normalize_event(event)
         new_docs.append(event)
 
     return new_docs
@@ -71,59 +67,61 @@ def _to_sentry_time(dt):
     return dt.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_window(
-    event_name, token, window_start, window_end, max_errors=None, cached_limit=None
+def normalize_event(event):
+    """Flatten tag values and remove environment metadata in place."""
+
+    event.update(
+        {f"{tag['key'].replace('.', '_')}": tag["value"] for tag in event.pop("tags")}
+    )
+    event.pop("environment", None)
+    return event
+
+
+def fetch_window_pages(
+    event_name, token, window_start, window_end, max_errors=None, timeout=None
 ):
-    """Fetch one time-window's worth of pages, sequentially paging until done."""
+    """Yield raw event pages for one time window."""
 
     max_errors = max_errors or DEFAULT_MAX_ERRORS
+    timeout = timeout or DEFAULT_TIMEOUT
 
     issue_id = ISSUES[event_name]
     start_iso = _to_sentry_time(window_start)
     end_iso = _to_sentry_time(window_end)
 
-    # build the base URL with your date filters
     base_url = (
         f"https://sentry.io/api/0/issues/{issue_id}/events/"
         f"?start={start_iso}&end={end_iso}"
     )
 
-    db = MongoClient().fmriprep_stats[event_name]
-    db.create_index("id", unique=True)
     cursor = None
     errors = 0
-    consecutive_cached = 0
-    url = base_url
-
-    new_records = 0
-    total_records = 0
-
     headers = {"Authorization": f"Bearer {token}"}
 
     while True:
-        if cursor:
-            url = base_url + f"&cursor={cursor}"
+        url = base_url if cursor is None else base_url + f"&cursor={cursor}"
 
-        req = requests.get(url, headers=headers)
+        try:
+            req = requests.get(url, headers=headers, timeout=timeout)
+        except (requests_exceptions.ReadTimeout, requests_exceptions.ConnectionError):
+            errors += 1
+            if errors > max_errors:
+                break
+            sleep(errors)
+            continue
+
         if req.status_code == 429:
-            # parse Retry‑After or use exponential backoff
             wait = int(req.headers.get("Retry-After", 2**errors))
             sleep(wait + 0.1)
             errors += 1
             if errors > max_errors:
-                print("")
-                print(f"[{event_name}][{window_start}] too many 429s; abort")
                 break
             continue
         elif not req.ok:
             errors += 1
             if errors > max_errors:
-                print("")
-                print(
-                    f"[{event_name}][{window_start}] errors: {req.status_code}; abort"
-                )
                 break
-            sleep(errors)  # simple backoff
+            sleep(errors)
             continue
 
         errors = 0
@@ -132,20 +130,8 @@ def fetch_window(
             for e in req.json()
             if {"key": "environment", "value": "prod"} in e["tags"]
         ]
-        new_docs = filter_new(events, db)
+        yield events
 
-        new_records += len(new_docs)
-        total_records += len(events)
-
-        if new_docs:
-            db.insert_many(new_docs)
-            consecutive_cached = 0
-        else:
-            consecutive_cached += 1
-            if cached_limit and consecutive_cached >= cached_limit:
-                break
-
-        # look at Link header for next cursor or end
         link_header = req.headers.get("Link", "")
         next_link = None
         if link_header:
@@ -158,6 +144,56 @@ def fetch_window(
             break
 
         cursor = next_link.get("cursor")
+
+
+def fetch_window_events(
+    event_name, token, window_start, window_end, max_errors=None, timeout=None
+):
+    """Fetch a window of events without persisting to Mongo."""
+
+    all_events = []
+    for events in fetch_window_pages(
+        event_name,
+        token,
+        window_start,
+        window_end,
+        max_errors=max_errors,
+        timeout=timeout,
+    ):
+        for event in events:
+            all_events.append(normalize_event(event))
+    return all_events
+
+
+def fetch_window(
+    event_name, token, window_start, window_end, max_errors=None, cached_limit=None
+):
+    """Fetch one time-window's worth of pages, sequentially paging until done."""
+
+    max_errors = max_errors or DEFAULT_MAX_ERRORS
+
+    db = MongoClient().fmriprep_stats[event_name]
+    db.create_index("id", unique=True)
+    consecutive_cached = 0
+
+    new_records = 0
+    total_records = 0
+
+    for events in fetch_window_pages(
+        event_name, token, window_start, window_end, max_errors=max_errors
+    ):
+        new_docs = filter_new(events, db)
+
+        new_records += len(new_docs)
+        total_records += len(events)
+
+        if new_docs:
+            db.insert_many(new_docs)
+            consecutive_cached = 0
+        else:
+            consecutive_cached += 1
+            if cached_limit and consecutive_cached >= cached_limit:
+                break
 
     return new_records, total_records
 
