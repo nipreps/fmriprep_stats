@@ -8,6 +8,7 @@ from time import sleep
 
 import pandas as pd
 import requests
+from requests import exceptions as requests_exceptions
 from requests.utils import parse_header_links
 
 ISSUES = {
@@ -39,6 +40,7 @@ def fetch_events(
     token: str,
     window_start: dt.datetime,
     window_end: dt.datetime,
+    timeout: int,
     max_errors: int = DEFAULT_MAX_ERRORS,
 ) -> list[dict]:
     """Fetch all events for a given issue in the provided time window."""
@@ -58,7 +60,14 @@ def fetch_events(
 
     while True:
         url = base_url if cursor is None else f"{base_url}&cursor={cursor}"
-        req = requests.get(url, headers=headers, timeout=30)
+        try:
+            req = requests.get(url, headers=headers, timeout=timeout)
+        except (requests_exceptions.ReadTimeout, requests_exceptions.ConnectionError):
+            errors += 1
+            if errors > max_errors:
+                break
+            sleep(errors)
+            continue
 
         if req.status_code == 429:
             wait = int(req.headers.get("Retry-After", 2**errors))
@@ -122,6 +131,12 @@ def _parse_args() -> argparse.Namespace:
         help="Sentry API token (defaults to SENTRY_TOKEN env var).",
     )
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=60,
+        help="HTTP request timeout in seconds.",
+    )
+    parser.add_argument(
         "--max-errors",
         type=int,
         default=DEFAULT_MAX_ERRORS,
@@ -151,6 +166,7 @@ def main() -> None:
                 args.token,
                 window_start,
                 window_end,
+                timeout=args.timeout,
                 max_errors=args.max_errors,
             )
         )
