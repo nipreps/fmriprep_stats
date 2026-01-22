@@ -7,3 +7,4 @@ nbconvert
 requests
 pyarrow
 osfclient
+click
