@@ -1,0 +1,48 @@
+name: Daily Sentry parquet export
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+  pull_request: {}
+
+env:
+  OSF_PROJECT_ID: sc2jr
+  OSF_REMOTE_DIR: osfstorage/fmriprep_stats
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Set UTC date
+        run: echo "RUN_DATE=$(date -u -d 'yesterday' +%Y%m%d)" >> "$GITHUB_ENV"
+
+      - name: Fetch Sentry events and write parquet
+        env:
+          SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
+        run: |
+          python -m src.daily_parquet_export \
+            --date "$RUN_DATE" \
+            --output "artifacts/${RUN_DATE}.parquet"
+
+      - name: Upload parquet to OSF
+        if: github.event_name != 'pull_request'
+        env:
+          OSF_TOKEN: ${{ secrets.OSF_TOKEN }}
+        run: |
+          osf -p "$OSF_PROJECT_ID" upload --force \
+            "artifacts/${RUN_DATE}.parquet" \
+            "${OSF_REMOTE_DIR}/${RUN_DATE}.parquet"

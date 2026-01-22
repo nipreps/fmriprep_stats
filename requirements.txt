@@ -5,3 +5,5 @@ seaborn
 notebook
 nbconvert
 requests
+pyarrow
+osfclient
