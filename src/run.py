@@ -28,7 +28,7 @@ from datetime import datetime, timezone, timedelta
 
 import click
 from api import parallel_fetch, ISSUES, DEFAULT_MAX_ERRORS
-from db import load_event, massage_versions
+from db import load_event, massage_versions, mongo_id_lookup, store_events
 from viz import plot_performance, plot_version_stream
 
 DEFAULT_DAYS_WINDOW = 90
@@ -53,14 +53,14 @@ def cli():
 @click.option(
     "-S",
     "--start-date",
-    type=click.DateTime(formats=["%Y-%m-%d"]),
+    type=click.DateTime(formats=["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]),
     default=None,
     help=f"Start date (inclusive) in YYYY-MM-DD; defaults to {DEFAULT_DAYS_WINDOW} days ago",
 )
 @click.option(
     "-E",
     "--end-date",
-    type=click.DateTime(formats=["%Y-%m-%d"]),
+    type=click.DateTime(formats=["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]),
     default=None,
     help="End date (exclusive) in YYYY-MM-DD; defaults to today",
 )
@@ -89,7 +89,28 @@ def cli():
     "-M", "--max-errors", type=click.IntRange(min=1), default=DEFAULT_MAX_ERRORS
 )
 @click.option("-L", "--cached-limit", type=click.IntRange(min=1), default=None)
-def get(event, start_date, end_date, days, chunk_days, jobs, max_errors, cached_limit):
+@click.option(
+    "--store/--no-store",
+    default=True,
+    help="Store fetched records in MongoDB (default: store).",
+)
+@click.option(
+    "--print-dataframe/--no-print-dataframe",
+    default=False,
+    help="Print a preview of the fetched dataframe to stdout.",
+)
+def get(
+    event,
+    start_date,
+    end_date,
+    days,
+    chunk_days,
+    jobs,
+    max_errors,
+    cached_limit,
+    store,
+    print_dataframe,
+):
     """Fetch events in parallel using time-window chunking."""
 
     token = os.getenv("SENTRY_TOKEN")
@@ -104,27 +125,15 @@ def get(event, start_date, end_date, days, chunk_days, jobs, max_errors, cached_
         start_date = None
 
     if start_date:
-        start_date = datetime(
-            year=start_date.year,
-            month=start_date.month,
-            day=start_date.day,
-            hour=now.hour,
-            minute=now.minute,
-            second=now.second,
-            microsecond=now.microsecond,
-            tzinfo=now.tzinfo,
-        )
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=now.tzinfo)
+        else:
+            start_date = start_date.astimezone(now.tzinfo)
     if end_date:
-        end_date = datetime(
-            year=end_date.year,
-            month=end_date.month,
-            day=end_date.day,
-            hour=now.hour,
-            minute=now.minute,
-            second=now.second,
-            microsecond=now.microsecond,
-            tzinfo=now.tzinfo,
-        )
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=now.tzinfo)
+        else:
+            end_date = end_date.astimezone(now.tzinfo)
     else:
         end_date = now
 
@@ -138,7 +147,8 @@ def get(event, start_date, end_date, days, chunk_days, jobs, max_errors, cached_
 
     # Get events
     for ev in event:
-        parallel_fetch(
+        id_lookup = mongo_id_lookup(ev) if store else None
+        _, _, records = parallel_fetch(
             event_name=ev,
             token=token,
             since=start_date,
@@ -147,7 +157,17 @@ def get(event, start_date, end_date, days, chunk_days, jobs, max_errors, cached_
             max_workers=jobs,
             cached_limit=cached_limit,
             max_errors=max_errors,
+            id_lookup=id_lookup,
         )
+        if store:
+            inserted = store_events(ev, records)
+            click.echo(f"[{ev}] Inserted {inserted} new records.")
+        if print_dataframe:
+            if records.empty:
+                click.echo(f"[{ev}] No records fetched.")
+            else:
+                click.echo(f"[{ev}] Dataframe preview:")
+                click.echo(records.head().to_string())
     click.echo(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} [Finished]")
 
 
