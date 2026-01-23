@@ -115,10 +115,13 @@ def _sanitize_event_name(event_name):
 )
 @click.option(
     "-o",
-    "--output-folder",
-    type=click.Path(file_okay=False, dir_okay=True, writable=True),
-    default=".",
-    help="Output folder for parquet files when --store parquet is enabled.",
+    "--output-file",
+    type=click.Path(dir_okay=False, writable=True),
+    default=None,
+    help=(
+        "Output file path for parquet output when --store parquet is enabled. "
+        "If omitted, writes to YYYY-MM-DD-<event>.parquet in the current directory."
+    ),
 )
 def get(
     event,
@@ -131,7 +134,7 @@ def get(
     cached_limit,
     store,
     print_dataframe,
-    output_folder,
+    output_file,
 ):
     """Fetch events in parallel using time-window chunking."""
 
@@ -168,6 +171,12 @@ def get(
     )
 
     store = store.lower()
+    if store == "parquet" and output_file and len(event) > 1:
+        click.echo(
+            "ERROR: --output-file can only be used with a single --event to avoid overwrites.",
+            err=True,
+        )
+        sys.exit(2)
     # Get events
     for ev in event:
         id_lookup = mongo_id_lookup(ev) if store == "mongo" else None
@@ -196,12 +205,11 @@ def get(
             if records.empty:
                 click.echo(f"[{ev}] No records fetched.")
             else:
-                output_path = Path(output_folder)
-                output_path.mkdir(parents=True, exist_ok=True)
                 safe_event = _sanitize_event_name(ev)
                 last_complete_day = (end_date - timedelta(days=1)).date().isoformat()
-                filename = f"{last_complete_day}-{safe_event}.parquet"
-                destination = output_path / filename
+                filename = output_file or f"{last_complete_day}-{safe_event}.parquet"
+                destination = Path(filename)
+                destination.parent.mkdir(parents=True, exist_ok=True)
                 records.to_parquet(destination)
                 click.echo(f"[{ev}] Wrote dataframe to {destination}.")
     click.echo(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} [Finished]")
