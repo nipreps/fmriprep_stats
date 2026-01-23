@@ -29,3 +29,9 @@ jobs:
             --start-date "${START_TIME}" \
             --end-date "${END_TIME}" \
             --store parquet
+
+      - name: Upload parquet artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fmriprep-stats-parquet
+          path: "*.parquet"
