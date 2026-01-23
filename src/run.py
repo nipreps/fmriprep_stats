@@ -23,7 +23,9 @@
 """CLI."""
 
 import os
+import re
 import sys
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import click
@@ -39,6 +41,16 @@ DEFAULT_CHUNK_DAYS = 1
 @click.version_option(message="fMRIPrep stats")
 def cli():
     """Download stats from Sentry.io."""
+
+
+def _sanitize_event_name(event_name):
+    normalized = event_name.strip().lower()
+    normalized = normalized.replace(os.sep, "_")
+    if os.altsep:
+        normalized = normalized.replace(os.altsep, "_")
+    normalized = re.sub(r"[^a-z0-9_.-]+", "_", normalized)
+    normalized = normalized.strip("_")
+    return normalized or "event"
 
 
 @cli.command()
@@ -90,14 +102,23 @@ def cli():
 )
 @click.option("-L", "--cached-limit", type=click.IntRange(min=1), default=None)
 @click.option(
-    "--store/--no-store",
-    default=True,
-    help="Store fetched records in MongoDB (default: store).",
+    "--store",
+    type=click.Choice(["mongo", "parquet"], case_sensitive=False),
+    default="mongo",
+    show_default=True,
+    help="Store fetched records in MongoDB or as parquet files.",
 )
 @click.option(
     "--print-dataframe/--no-print-dataframe",
     default=False,
     help="Print a preview of the fetched dataframe to stdout.",
+)
+@click.option(
+    "-o",
+    "--output-folder",
+    type=click.Path(file_okay=False, dir_okay=True, writable=True),
+    default=".",
+    help="Output folder for parquet files when --store parquet is enabled.",
 )
 def get(
     event,
@@ -110,6 +131,7 @@ def get(
     cached_limit,
     store,
     print_dataframe,
+    output_folder,
 ):
     """Fetch events in parallel using time-window chunking."""
 
@@ -145,9 +167,10 @@ def get(
         f"from: {start_date:%Y-%m-%d %H:%M:%S}, to: {end_date:%Y-%m-%d %H:%M:%S}"
     )
 
+    store = store.lower()
     # Get events
     for ev in event:
-        id_lookup = mongo_id_lookup(ev) if store else None
+        id_lookup = mongo_id_lookup(ev) if store == "mongo" else None
         _, _, records = parallel_fetch(
             event_name=ev,
             token=token,
@@ -159,15 +182,28 @@ def get(
             max_errors=max_errors,
             id_lookup=id_lookup,
         )
-        if store:
-            inserted = store_events(ev, records)
-            click.echo(f"[{ev}] Inserted {inserted} new records.")
         if print_dataframe:
             if records.empty:
                 click.echo(f"[{ev}] No records fetched.")
             else:
                 click.echo(f"[{ev}] Dataframe preview:")
                 click.echo(records.head().to_string())
+            continue
+        if store == "mongo":
+            inserted = store_events(ev, records)
+            click.echo(f"[{ev}] Inserted {inserted} new records.")
+        elif store == "parquet":
+            if records.empty:
+                click.echo(f"[{ev}] No records fetched.")
+            else:
+                output_path = Path(output_folder)
+                output_path.mkdir(parents=True, exist_ok=True)
+                safe_event = _sanitize_event_name(ev)
+                last_complete_day = (end_date - timedelta(days=1)).date().isoformat()
+                filename = f"{last_complete_day}-{safe_event}.parquet"
+                destination = output_path / filename
+                records.to_parquet(destination)
+                click.echo(f"[{ev}] Wrote dataframe to {destination}.")
     click.echo(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} [Finished]")
 
 
