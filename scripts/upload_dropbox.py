@@ -25,15 +25,14 @@ def _env_int(name: str, default: int) -> int:
 def main() -> int:
     app_key = os.getenv("DROPBOX_APP_KEY")
     app_secret = os.getenv("DROPBOX_APP_SECRET")
-    refresh_token = os.getenv("DROPBOX_REFRESH_TOKEN")
     access_code = os.getenv("DROPBOX_APP_ACCESS_CODE")
-    if not app_key or not app_secret or not (refresh_token or access_code):
+    if not app_key or not app_secret or not access_code:
         missing = [
             name
             for name, value in (
                 ("DROPBOX_APP_KEY", app_key),
                 ("DROPBOX_APP_SECRET", app_secret),
-                ("DROPBOX_REFRESH_TOKEN or DROPBOX_APP_ACCESS_CODE", refresh_token or access_code),
+                ("DROPBOX_APP_ACCESS_CODE", access_code),
             )
             if not value
         ]
@@ -43,8 +42,7 @@ def main() -> int:
         )
         return 0
 
-    if not refresh_token and access_code:
-        refresh_token = _exchange_refresh_token(app_key, app_secret, access_code)
+    refresh_token = _exchange_refresh_token(app_key, app_secret, access_code)
 
     retries = _env_int("DROPBOX_UPLOAD_RETRIES", 3)
     retry_delay = _env_int("DROPBOX_UPLOAD_RETRY_DELAY", 2)
