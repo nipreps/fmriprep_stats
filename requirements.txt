@@ -1,7 +1,11 @@
 pymongo
 pandas
+numpy
+packaging
 matplotlib
+scipy
 seaborn
 notebook
 nbconvert
 requests
+click
