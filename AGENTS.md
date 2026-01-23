@@ -3,8 +3,12 @@
 The project is divided in three major components:
 
 - a stats fetcher from Sentry.io under `src/`
+    - `src/api.py` contains the fetcher to query Sentry's API.
+    - `src/run.py` contains a command line interface.
+    - `src/db.py` contains some utilities to handle MongoDB.
+    - `src/viz.py` contains plotting code.
 - visualization tools (originally developed under `notebooks/` with plotting utilities migrated into `src/viz.py`)
-- housekeeping scripts meant for addition into Cron under `scripts/`
+- housekeeping Bash scripts meant for addition into Cron under `scripts/`
 
 # Testing
 
