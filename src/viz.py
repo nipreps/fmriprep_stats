@@ -411,11 +411,12 @@ def plot_version_stream(
         return center
 
     left_positions = []
+    special_left = {"21.0", "v21.0", "22.0", "v22.0"}
     for label in left_labels:
+        if label in special_left:
+            continue
         anchor_x = starts[label]
         y = _center_y(label, anchor_x)
-        if label in {"21.0", "v21.0"}:
-            y -= max(1200, y_top * 0.2)
         left_positions.append((label, y, anchor_x))
     left_positions.sort(key=lambda item: item[1])
     min_gap = max(1200, y_top * 0.25)
@@ -435,7 +436,17 @@ def plot_version_stream(
                 for idx, (label, _, anchor_x) in enumerate(adjusted_left)
             ]
 
-    for label, y, anchor_x in adjusted_left:
+    manual_left = []
+    for label in left_labels:
+        if label not in special_left:
+            continue
+        anchor_x = starts[label]
+        y = _center_y(label, anchor_x)
+        if label in {"21.0", "v21.0"}:
+            y -= max(1600, y_top * 0.3)
+        manual_left.append((label, y, anchor_x))
+
+    for label, y, anchor_x in adjusted_left + manual_left:
         color = colors[list(labels).index(label)]
         axes[0].annotate(
             _label_text(label),
@@ -473,7 +484,7 @@ def plot_version_stream(
         axes[0].annotate(
             _label_text(label),
             xy=(anchor_x, top_y),
-            xytext=(anchor_x + 0.8, top_y + y_top * 0.12),
+            xytext=(anchor_x + 0.8, top_y + y_top * 0.18),
             textcoords="data",
             xycoords="data",
             fontweight=800,
@@ -505,19 +516,20 @@ def plot_version_stream(
         year_index_target = years.index(year_target)
         x_start, x_end = xlims[year_index_target]
         anchor_x = int(0.5 * (x_start + x_end))
-        y_bottom = baseline_shift[anchor_x] - y_top * 0.12
+        y_bottom = baseline_shift[anchor_x] - y_top * 0.28
+        x_offset = 3.5
         axis = _axis_for_x(anchor_x)
         axis.annotate(
             _label_text(label),
             xy=(anchor_x, baseline_shift[anchor_x]),
-            xytext=(anchor_x, y_bottom),
+            xytext=(anchor_x + x_offset, y_bottom),
             textcoords="data",
             xycoords="data",
             fontweight=800,
             annotation_clip=False,
             color=_label_color(color),
             size=14,
-            horizontalalignment="center",
+            horizontalalignment="left",
             verticalalignment="center",
             bbox={
                 "boxstyle": "round",
