@@ -6,6 +6,9 @@ from __future__ import annotations
 import os
 import sys
 import time
+import json
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import dropbox
@@ -23,13 +26,14 @@ def main() -> int:
     app_key = os.getenv("DROPBOX_APP_KEY")
     app_secret = os.getenv("DROPBOX_APP_SECRET")
     refresh_token = os.getenv("DROPBOX_REFRESH_TOKEN")
-    if not app_key or not app_secret or not refresh_token:
+    access_code = os.getenv("DROPBOX_APP_ACCESS_CODE")
+    if not app_key or not app_secret or not (refresh_token or access_code):
         missing = [
             name
             for name, value in (
                 ("DROPBOX_APP_KEY", app_key),
                 ("DROPBOX_APP_SECRET", app_secret),
-                ("DROPBOX_REFRESH_TOKEN", refresh_token),
+                ("DROPBOX_REFRESH_TOKEN or DROPBOX_APP_ACCESS_CODE", refresh_token or access_code),
             )
             if not value
         ]
@@ -38,6 +42,9 @@ def main() -> int:
             file=sys.stderr,
         )
         return 0
+
+    if not refresh_token and access_code:
+        refresh_token = _exchange_refresh_token(app_key, app_secret, access_code)
 
     retries = _env_int("DROPBOX_UPLOAD_RETRIES", 3)
     retry_delay = _env_int("DROPBOX_UPLOAD_RETRY_DELAY", 2)
@@ -86,6 +93,32 @@ def main() -> int:
             failed = True
 
     return 1 if failed else 0
+
+
+def _exchange_refresh_token(app_key: str, app_secret: str, access_code: str) -> str:
+    payload = urllib.parse.urlencode(
+        {
+            "code": access_code,
+            "grant_type": "authorization_code",
+            "client_id": app_key,
+            "client_secret": app_secret,
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.dropbox.com/oauth2/token",
+        data=payload,
+        method="POST",
+    )
+    with urllib.request.urlopen(request) as response:
+        body = response.read().decode("utf-8")
+    try:
+        data = json.loads(body)
+    except ValueError as exc:
+        raise SystemExit(f"Failed to parse Dropbox token response: {exc}") from exc
+    token = data.get("refresh_token")
+    if not token:
+        raise SystemExit(f"No refresh_token in response: {body}")
+    return token
 
 
 if __name__ == "__main__":
