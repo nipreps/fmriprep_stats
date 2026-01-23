@@ -7,6 +7,7 @@ from packaging import version
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib import colors as mpl_colors
 from scipy.interpolate import RBFInterpolator
 
 plt.rcParams['font.family'] = 'sans-serif'
@@ -280,6 +281,13 @@ def plot_version_stream(
     out_file: str = "versionstream.png",
 ):
     """Generate the version stream plot."""
+    def _label_color(color):
+        rgb = np.array(mpl_colors.to_rgb(color))
+        luminance = np.dot(rgb, [0.2126, 0.7152, 0.0722])
+        return "w" if luminance < 0.5 else "k"
+
+    def _label_text(label):
+        return "20.2 (LTS)" if label in {"20.2", "v20.2"} else label
 
     if drop_cutoff:
         cutoff = version.parse(drop_cutoff)
@@ -369,5 +377,132 @@ def plot_version_stream(
         axes[ax_i].set_xlabel(f"{yr}", fontsize=18)
         year_start_index = year_end_index
 
-    plt.savefig(out_file, dpi=300, bbox_inches="tight")
+    totals = data.sum(axis=1).to_numpy()
+    baseline_shift = -0.5 * totals
+    y_top = 0.5 * totals.max()
+    starts = {}
+    for idx, label in enumerate(labels):
+        series = data[label].to_numpy()
+        nonzero = np.flatnonzero(series > 0)
+        starts[label] = int(nonzero[0]) if nonzero.size else 0
 
+    left_labels = [label for label in labels if starts[label] <= 1]
+    later_labels = [label for label in labels if label not in left_labels]
+
+    def _axis_for_x(xpos):
+        for ax_i, (x_start, x_end) in enumerate(xlims):
+            if x_start <= xpos <= x_end:
+                return axes[ax_i]
+        return axes[-1]
+
+    def _center_y(label, xpos):
+        xpos = min(max(int(xpos), 0), len(data) - 1)
+        values = data.iloc[xpos].to_numpy()
+        cum = np.cumsum(values)
+        idx = list(labels).index(label)
+        center = baseline_shift[xpos] + cum[idx] - values[idx] / 2.0
+        return center
+
+    left_positions = []
+    for label in left_labels:
+        y = _center_y(label, 0)
+        left_positions.append((label, y))
+    left_positions.sort(key=lambda item: item[1])
+    min_gap = max(800, y_top * 0.15)
+    adjusted_left = []
+    for label, y in left_positions:
+        if adjusted_left and y - adjusted_left[-1][1] < min_gap:
+            y = adjusted_left[-1][1] + min_gap
+        adjusted_left.append((label, y))
+    if len(adjusted_left) > 1:
+        span = adjusted_left[-1][1] - adjusted_left[0][1]
+        target_span = min_gap * (len(adjusted_left) - 1)
+        if span < target_span:
+            center = np.mean([pos for _, pos in adjusted_left])
+            start = center - 0.5 * target_span
+            adjusted_left = [
+                (label, start + min_gap * idx)
+                for idx, (label, _) in enumerate(adjusted_left)
+            ]
+
+    for label, y in adjusted_left:
+        color = colors[list(labels).index(label)]
+        axes[0].annotate(
+            _label_text(label),
+            xy=(0, y),
+            xytext=(-2, y),
+            textcoords="data",
+            xycoords="data",
+            fontweight=800,
+            annotation_clip=False,
+            color=_label_color(color),
+            size=14,
+            horizontalalignment="right",
+            verticalalignment="center",
+            bbox={
+                "boxstyle": "round",
+                "fc": color,
+                "ec": color,
+                "color": "w",
+                "pad": 0.5,
+            },
+            arrowprops={
+                "arrowstyle": "wedge,tail_width=.5",
+                "color": color,
+                "patchA": None,
+                "patchB": None,
+                "relpos": (0.8, 0.5),
+            },
+        )
+
+    stagger = [0.88, 0.8, 0.72]
+    for idx, label in enumerate(sorted(later_labels, key=lambda lab: starts[lab])):
+        xpos = starts[label]
+        color = colors[list(labels).index(label)]
+        y = y_top * stagger[idx % len(stagger)]
+        axis = _axis_for_x(xpos)
+        axis_index = list(axes).index(axis)
+        x_start, x_end = xlims[axis_index]
+        year_span = max(x_end - x_start, 1)
+        frac = (xpos - x_start) / year_span
+        if frac < 0.2:
+            offset = 1.5
+            align = "left"
+            relpos = (0.3, 0.3)
+        elif frac > 0.8:
+            offset = -3.0
+            align = "right"
+            relpos = (0.7, 0.3)
+        else:
+            offset = 0.0
+            align = "center"
+            relpos = (0.5, 0.3)
+        axis.annotate(
+            _label_text(label),
+            xy=(xpos, _center_y(label, xpos)),
+            xytext=(xpos + offset, y),
+            textcoords="data",
+            xycoords="data",
+            fontweight=800,
+            annotation_clip=False,
+            color=_label_color(color),
+            size=14,
+            horizontalalignment=align,
+            verticalalignment="center",
+            bbox={
+                "boxstyle": "round",
+                "fc": color,
+                "ec": color,
+                "color": "w",
+                "pad": 0.5,
+            },
+            arrowprops={
+                "arrowstyle": "wedge,tail_width=.5",
+                "color": color,
+                "patchA": None,
+                "patchB": None,
+                "relpos": relpos,
+            },
+        )
+
+    plt.savefig(out_file, dpi=300, bbox_inches="tight")
