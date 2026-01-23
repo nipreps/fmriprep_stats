@@ -388,6 +388,13 @@ def plot_version_stream(
 
     left_labels = [label for label in labels if starts[label] <= 1]
     later_labels = [label for label in labels if label not in left_labels]
+    lts_labels = [label for label in labels if label in {"20.2", "v20.2"}]
+    older_labels = [label for label in labels if label == "older"]
+    left_labels = [
+        label
+        for label in left_labels
+        if label not in set(lts_labels).union(older_labels)
+    ]
 
     def _axis_for_x(xpos):
         for ax_i, (x_start, x_end) in enumerate(xlims):
@@ -405,31 +412,32 @@ def plot_version_stream(
 
     left_positions = []
     for label in left_labels:
-        y = _center_y(label, 0)
-        left_positions.append((label, y))
+        anchor_x = starts[label]
+        y = _center_y(label, anchor_x)
+        left_positions.append((label, y, anchor_x))
     left_positions.sort(key=lambda item: item[1])
-    min_gap = max(800, y_top * 0.15)
+    min_gap = max(1200, y_top * 0.25)
     adjusted_left = []
-    for label, y in left_positions:
+    for label, y, anchor_x in left_positions:
         if adjusted_left and y - adjusted_left[-1][1] < min_gap:
             y = adjusted_left[-1][1] + min_gap
-        adjusted_left.append((label, y))
+        adjusted_left.append((label, y, anchor_x))
     if len(adjusted_left) > 1:
         span = adjusted_left[-1][1] - adjusted_left[0][1]
         target_span = min_gap * (len(adjusted_left) - 1)
         if span < target_span:
-            center = np.mean([pos for _, pos in adjusted_left])
+            center = np.mean([pos for _, pos, _ in adjusted_left])
             start = center - 0.5 * target_span
             adjusted_left = [
-                (label, start + min_gap * idx)
-                for idx, (label, _) in enumerate(adjusted_left)
+                (label, start + min_gap * idx, anchor_x)
+                for idx, (label, _, anchor_x) in enumerate(adjusted_left)
             ]
 
-    for label, y in adjusted_left:
+    for label, y, anchor_x in adjusted_left:
         color = colors[list(labels).index(label)]
         axes[0].annotate(
             _label_text(label),
-            xy=(0, y),
+            xy=(anchor_x, _center_y(label, anchor_x)),
             xytext=(-2, y),
             textcoords="data",
             xycoords="data",
@@ -452,6 +460,73 @@ def plot_version_stream(
                 "patchA": None,
                 "patchB": None,
                 "relpos": (0.8, 0.5),
+            },
+        )
+
+    if older_labels:
+        label = older_labels[0]
+        color = colors[list(labels).index(label)]
+        anchor_x = starts[label]
+        axes[0].annotate(
+            _label_text(label),
+            xy=(anchor_x, _center_y(label, anchor_x)),
+            xytext=(anchor_x + 1.5, y_top * 0.85),
+            textcoords="data",
+            xycoords="data",
+            fontweight=800,
+            annotation_clip=False,
+            color=_label_color(color),
+            size=14,
+            horizontalalignment="left",
+            verticalalignment="center",
+            bbox={
+                "boxstyle": "round",
+                "fc": color,
+                "ec": color,
+                "color": "w",
+                "pad": 0.5,
+            },
+            arrowprops={
+                "arrowstyle": "wedge,tail_width=.5",
+                "color": color,
+                "patchA": None,
+                "patchB": None,
+                "relpos": (0.3, 0.3),
+            },
+        )
+
+    if lts_labels:
+        label = lts_labels[0]
+        color = colors[list(labels).index(label)]
+        anchor_x = starts[label]
+        mid_x = int(0.5 * (len(data) - 1))
+        y_bottom = -y_top * 0.85
+        axis = _axis_for_x(mid_x)
+        axis.annotate(
+            _label_text(label),
+            xy=(anchor_x, _center_y(label, anchor_x)),
+            xytext=(mid_x, y_bottom),
+            textcoords="data",
+            xycoords="data",
+            fontweight=800,
+            annotation_clip=False,
+            color=_label_color(color),
+            size=14,
+            horizontalalignment="center",
+            verticalalignment="center",
+            bbox={
+                "boxstyle": "round",
+                "fc": color,
+                "ec": color,
+                "color": "w",
+                "pad": 0.5,
+            },
+            arrowprops={
+                "arrowstyle": "wedge,tail_width=.5",
+                "color": color,
+                "patchA": None,
+                "patchB": None,
+                "relpos": (0.5, 0.3),
             },
         )
 
