@@ -12,6 +12,7 @@ jobs:
       SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
       DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
       DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+      DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
       DROPBOX_UPLOAD_RETRIES: ${{ vars.DROPBOX_UPLOAD_RETRIES }}
       DROPBOX_UPLOAD_RETRY_DELAY: ${{ vars.DROPBOX_UPLOAD_RETRY_DELAY }}
     steps:
@@ -49,8 +50,8 @@ jobs:
       - name: Upload parquet files to Dropbox
         shell: bash
         run: |
-          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" ]]; then
-            echo "DROPBOX_APP_KEY or DROPBOX_APP_SECRET not set; skipping Dropbox upload." >&2
+          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" || -z "${DROPBOX_REFRESH_TOKEN}" ]]; then
+            echo "Dropbox app credentials or refresh token not set; skipping Dropbox upload." >&2
             exit 0
           fi
 
@@ -58,7 +59,8 @@ jobs:
             --request POST \
             "https://api.dropbox.com/oauth2/token" \
             --user "${DROPBOX_APP_KEY}:${DROPBOX_APP_SECRET}" \
-            --data-urlencode "grant_type=client_credentials")
+            --data-urlencode "grant_type=refresh_token" \
+            --data-urlencode "refresh_token=${DROPBOX_REFRESH_TOKEN}")
           ACCESS_TOKEN=$(python - "${TOKEN_RESPONSE}" <<'PY'
           import json
           import sys
