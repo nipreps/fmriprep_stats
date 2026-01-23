@@ -59,7 +59,7 @@ jobs:
             "https://api.dropbox.com/oauth2/token" \
             --user "${DROPBOX_APP_KEY}:${DROPBOX_APP_SECRET}" \
             --data-urlencode "grant_type=client_credentials")
-          ACCESS_TOKEN=$(python - <<'PY'
+          ACCESS_TOKEN=$(python - "${TOKEN_RESPONSE}" <<'PY'
           import json
           import sys
 
@@ -69,7 +69,7 @@ jobs:
               raise SystemExit("No access_token in response")
           print(token)
           PY
-            "${TOKEN_RESPONSE}")
+            )
           if [[ -z "${ACCESS_TOKEN}" ]]; then
             echo "Failed to obtain Dropbox access token." >&2
             exit 1
