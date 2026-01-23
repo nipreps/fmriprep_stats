@@ -62,12 +62,11 @@ jobs:
           fi
 
           TOKEN_RESPONSE=$(curl --fail --silent --show-error \
-            --request POST \
             "https://api.dropbox.com/oauth2/token" \
-            --data-urlencode "code=${DROPBOX_APP_ACCESS_CODE}" \
-            --data-urlencode "grant_type=authorization_code" \
-            --data-urlencode "client_id=${DROPBOX_APP_KEY}" \
-            --data-urlencode "client_secret=${DROPBOX_APP_SECRET}")
+            -d "code=${DROPBOX_APP_ACCESS_CODE}" \
+            -d "grant_type=authorization_code" \
+            -d "client_id=${DROPBOX_APP_KEY}" \
+            -d "client_secret=${DROPBOX_APP_SECRET}")
           REFRESH_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.refresh_token // empty')
           if [[ -z "${REFRESH_TOKEN}" ]]; then
             echo "Failed to obtain Dropbox refresh token. Response: ${TOKEN_RESPONSE}" >&2
