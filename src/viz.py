@@ -414,6 +414,8 @@ def plot_version_stream(
     for label in left_labels:
         anchor_x = starts[label]
         y = _center_y(label, anchor_x)
+        if label in {"21.0", "v21.0"}:
+            y -= max(1200, y_top * 0.2)
         left_positions.append((label, y, anchor_x))
     left_positions.sort(key=lambda item: item[1])
     min_gap = max(1200, y_top * 0.25)
@@ -467,10 +469,11 @@ def plot_version_stream(
         label = older_labels[0]
         color = colors[list(labels).index(label)]
         anchor_x = starts[label]
+        top_y = baseline_shift[anchor_x] + totals[anchor_x]
         axes[0].annotate(
             _label_text(label),
-            xy=(anchor_x, _center_y(label, anchor_x)),
-            xytext=(anchor_x + 1.5, y_top * 0.85),
+            xy=(anchor_x, top_y),
+            xytext=(anchor_x + 0.8, top_y + y_top * 0.12),
             textcoords="data",
             xycoords="data",
             fontweight=800,
@@ -498,14 +501,16 @@ def plot_version_stream(
     if lts_labels:
         label = lts_labels[0]
         color = colors[list(labels).index(label)]
-        anchor_x = starts[label]
-        mid_x = int(0.5 * (len(data) - 1))
-        y_bottom = -y_top * 0.85
-        axis = _axis_for_x(mid_x)
+        year_target = 2023 if 2023 in years else years[0]
+        year_index_target = years.index(year_target)
+        x_start, x_end = xlims[year_index_target]
+        anchor_x = int(0.5 * (x_start + x_end))
+        y_bottom = baseline_shift[anchor_x] - y_top * 0.12
+        axis = _axis_for_x(anchor_x)
         axis.annotate(
             _label_text(label),
-            xy=(anchor_x, _center_y(label, anchor_x)),
-            xytext=(mid_x, y_bottom),
+            xy=(anchor_x, baseline_shift[anchor_x]),
+            xytext=(anchor_x, y_bottom),
             textcoords="data",
             xycoords="data",
             fontweight=800,
