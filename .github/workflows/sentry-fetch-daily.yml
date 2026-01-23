@@ -52,4 +52,27 @@ jobs:
       - name: Upload parquet files to Dropbox
         shell: bash
         run: |
+          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" || -z "${DROPBOX_APP_ACCESS_CODE}" ]]; then
+            MISSING=()
+            if [[ -z "${DROPBOX_APP_KEY}" ]]; then MISSING+=("DROPBOX_APP_KEY"); fi
+            if [[ -z "${DROPBOX_APP_SECRET}" ]]; then MISSING+=("DROPBOX_APP_SECRET"); fi
+            if [[ -z "${DROPBOX_APP_ACCESS_CODE}" ]]; then MISSING+=("DROPBOX_APP_ACCESS_CODE"); fi
+            echo "Dropbox credentials missing (${MISSING[*]}); skipping Dropbox upload." >&2
+            exit 0
+          fi
+
+          TOKEN_RESPONSE=$(curl --fail --silent --show-error \
+            --request POST \
+            "https://api.dropbox.com/oauth2/token" \
+            --data-urlencode "code=${DROPBOX_APP_ACCESS_CODE}" \
+            --data-urlencode "grant_type=authorization_code" \
+            --data-urlencode "client_id=${DROPBOX_APP_KEY}" \
+            --data-urlencode "client_secret=${DROPBOX_APP_SECRET}")
+          REFRESH_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.refresh_token // empty')
+          if [[ -z "${REFRESH_TOKEN}" ]]; then
+            echo "Failed to obtain Dropbox refresh token. Response: ${TOKEN_RESPONSE}" >&2
+            exit 1
+          fi
+          echo "DROPBOX_REFRESH_TOKEN=${REFRESH_TOKEN}" >> "${GITHUB_ENV}"
+
           python scripts/upload_dropbox.py
