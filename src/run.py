@@ -22,11 +22,14 @@
 #
 """CLI."""
 
+import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from subprocess import PIPE, run
 
 import click
 from api import parallel_fetch, ISSUES, DEFAULT_MAX_ERRORS
@@ -35,6 +38,70 @@ from viz import plot_performance, plot_version_stream
 
 DEFAULT_DAYS_WINDOW = 90
 DEFAULT_CHUNK_DAYS = 1
+DEFAULT_DROPBOX_UPLOAD = False
+DEFAULT_DROPBOX_RETRIES = 3
+DEFAULT_DROPBOX_RETRY_DELAY = 2
+
+
+def _env_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _upload_to_dropbox(
+    file_path,
+    *,
+    dropbox_token,
+    dropbox_path,
+    max_retries=DEFAULT_DROPBOX_RETRIES,
+    retry_delay=DEFAULT_DROPBOX_RETRY_DELAY,
+):
+    api_args = {
+        "path": dropbox_path,
+        "mode": "overwrite",
+        "autorename": False,
+        "mute": False,
+        "strict_conflict": False,
+    }
+    api_args_json = json.dumps(api_args)
+    for attempt in range(1, max_retries + 1):
+        result = run(
+            [
+                "curl",
+                "--fail",
+                "--silent",
+                "--show-error",
+                "--request",
+                "POST",
+                "https://content.dropboxapi.com/2/files/upload",
+                "--header",
+                f"Authorization: Bearer {dropbox_token}",
+                "--header",
+                f"Dropbox-API-Arg: {api_args_json}",
+                "--header",
+                "Content-Type: application/octet-stream",
+                "--data-binary",
+                f"@{file_path}",
+            ],
+            check=False,
+            stdout=PIPE,
+            stderr=PIPE,
+            text=True,
+        )
+        if result.returncode == 0:
+            click.echo(f"[Dropbox] Uploaded {file_path} -> {dropbox_path}.")
+            return True
+        click.echo(
+            f"[Dropbox] Upload attempt {attempt}/{max_retries} failed for {file_path}: "
+            f"{result.stderr.strip() or result.stdout.strip()}",
+            err=True,
+        )
+        if attempt < max_retries:
+            time.sleep(retry_delay * attempt)
+    click.echo(f"[Dropbox] Failed to upload {file_path} after {max_retries} attempts.", err=True)
+    return False
 
 
 @click.group()
@@ -143,6 +210,15 @@ def get(
         click.echo("ERROR: SENTRY_TOKEN environment variable not set", err=True)
         sys.exit(1)
 
+    dropbox_upload = _env_flag("DROPBOX_UPLOAD", default=DEFAULT_DROPBOX_UPLOAD)
+    dropbox_token = os.getenv("DROPBOX_TOKEN") if dropbox_upload else None
+    if dropbox_upload and not dropbox_token:
+        click.echo("ERROR: DROPBOX_UPLOAD is enabled but DROPBOX_TOKEN is not set.", err=True)
+        sys.exit(1)
+
+    dropbox_retries = int(os.getenv("DROPBOX_UPLOAD_RETRIES", DEFAULT_DROPBOX_RETRIES))
+    dropbox_retry_delay = int(os.getenv("DROPBOX_UPLOAD_RETRY_DELAY", DEFAULT_DROPBOX_RETRY_DELAY))
+
     now = datetime.now(timezone.utc)
 
     if start_date and days:
@@ -212,6 +288,15 @@ def get(
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 records.to_parquet(destination)
                 click.echo(f"[{ev}] Wrote dataframe to {destination}.")
+                if dropbox_upload:
+                    dropbox_path = f"/fmriprep-daily-stats/{destination.name}"
+                    _upload_to_dropbox(
+                        destination,
+                        dropbox_token=dropbox_token,
+                        dropbox_path=dropbox_path,
+                        max_retries=dropbox_retries,
+                        retry_delay=dropbox_retry_delay,
+                    )
     click.echo(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} [Finished]")
 
 
