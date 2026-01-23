@@ -35,12 +35,6 @@ DEFAULT_DAYS_WINDOW = 90
 DEFAULT_CHUNK_DAYS = 1
 
 
-def _ensure_timezone(dt: datetime, tzinfo: timezone) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=tzinfo)
-    return dt.astimezone(tzinfo)
-
-
 @click.group()
 @click.version_option(message="fMRIPrep stats")
 def cli():
@@ -59,28 +53,16 @@ def cli():
 @click.option(
     "-S",
     "--start-date",
-    type=click.DateTime(formats=["%Y-%m-%d"]),
+    type=click.DateTime(formats=["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]),
     default=None,
     help=f"Start date (inclusive) in YYYY-MM-DD; defaults to {DEFAULT_DAYS_WINDOW} days ago",
 )
 @click.option(
-    "--start-time",
-    type=click.DateTime(formats=["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]),
-    default=None,
-    help="Start time (inclusive) in YYYY-MM-DDTHH:MM:SS; overrides --start-date/--days",
-)
-@click.option(
     "-E",
     "--end-date",
-    type=click.DateTime(formats=["%Y-%m-%d"]),
+    type=click.DateTime(formats=["%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]),
     default=None,
     help="End date (exclusive) in YYYY-MM-DD; defaults to today",
-)
-@click.option(
-    "--end-time",
-    type=click.DateTime(formats=["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]),
-    default=None,
-    help="End time (exclusive) in YYYY-MM-DDTHH:MM:SS; overrides --end-date/--days",
 )
 @click.option(
     "-D",
@@ -120,9 +102,7 @@ def cli():
 def get(
     event,
     start_date,
-    start_time,
     end_date,
-    end_time,
     days,
     chunk_days,
     jobs,
@@ -140,41 +120,20 @@ def get(
 
     now = datetime.now(timezone.utc)
 
-    if start_time and (start_date or days):
-        click.echo("Warning: overriding --start-date/--days because --start-time was present")
+    if start_date and days:
+        click.echo("Warning: overriding --start-date because --days was present")
         start_date = None
-        days = None
-    if end_time and (end_date or days):
-        click.echo("Warning: overriding --end-date/--days because --end-time was present")
-        end_date = None
-        days = None
 
-    if start_time:
-        start_date = _ensure_timezone(start_time, now.tzinfo)
-    elif start_date:
-        start_date = datetime(
-            year=start_date.year,
-            month=start_date.month,
-            day=start_date.day,
-            hour=now.hour,
-            minute=now.minute,
-            second=now.second,
-            microsecond=now.microsecond,
-            tzinfo=now.tzinfo,
-        )
-    if end_time:
-        end_date = _ensure_timezone(end_time, now.tzinfo)
-    elif end_date:
-        end_date = datetime(
-            year=end_date.year,
-            month=end_date.month,
-            day=end_date.day,
-            hour=now.hour,
-            minute=now.minute,
-            second=now.second,
-            microsecond=now.microsecond,
-            tzinfo=now.tzinfo,
-        )
+    if start_date:
+        if start_date.tzinfo is None:
+            start_date = start_date.replace(tzinfo=now.tzinfo)
+        else:
+            start_date = start_date.astimezone(now.tzinfo)
+    if end_date:
+        if end_date.tzinfo is None:
+            end_date = end_date.replace(tzinfo=now.tzinfo)
+        else:
+            end_date = end_date.astimezone(now.tzinfo)
     else:
         end_date = now
 
