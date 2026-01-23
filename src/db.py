@@ -4,10 +4,40 @@
 from __future__ import annotations
 
 import datetime
-from typing import Tuple
+from typing import Callable, Iterable, Tuple
 
 import pandas as pd
 from pymongo import MongoClient
+
+
+def mongo_id_lookup(event_name: str) -> Callable[[Iterable[str]], set[str]]:
+    """Return a lookup function for cached event ids."""
+    collection = MongoClient().fmriprep_stats[event_name]
+    collection.create_index("id", unique=True)
+
+    def _lookup(ids: Iterable[str]) -> set[str]:
+        ids = list(ids)
+        if not ids:
+            return set()
+        return set(collection.distinct("id", {"id": {"$in": ids}}))
+
+    return _lookup
+
+
+def store_events(event_name: str, records: pd.DataFrame | Iterable[dict]) -> int:
+    """Persist fetched records to MongoDB."""
+    if isinstance(records, pd.DataFrame):
+        docs = records.to_dict("records")
+    else:
+        docs = list(records)
+
+    if not docs:
+        return 0
+
+    collection = MongoClient().fmriprep_stats[event_name]
+    collection.create_index("id", unique=True)
+    result = collection.insert_many(docs)
+    return len(result.inserted_ids)
 
 
 def load_event(event_name: str, unique: bool = True) -> pd.DataFrame:

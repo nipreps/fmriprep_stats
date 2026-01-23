@@ -28,8 +28,9 @@ from time import sleep
 import requests
 from requests.utils import parse_header_links
 import datetime
-from pymongo import MongoClient
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
 
 DEFAULT_MAX_ERRORS = 5
 ISSUES = {
@@ -41,29 +42,22 @@ ISSUES = {
 }
 
 
-def filter_new(events, collection):
-    """Return the subset of *events* not already cached in *collection*."""
+def normalize_events(events):
+    """Flatten Sentry tags and drop non-persistent fields."""
 
-    ids = [e["id"] for e in events]
-    if not ids:
-        return []
-
-    cached_ids = set(collection.distinct("id", {"id": {"$in": ids}}))
-
-    new_docs = []
+    normalized = []
     for event in events:
-        if event["id"] in cached_ids:
-            continue
-        event.update(
+        item = dict(event)
+        item.update(
             {
                 f"{tag['key'].replace('.', '_')}": tag["value"]
-                for tag in event.pop("tags")
+                for tag in item.pop("tags")
             }
         )
-        event.pop("environment", None)
-        new_docs.append(event)
+        item.pop("environment", None)
+        normalized.append(item)
 
-    return new_docs
+    return normalized
 
 
 def _to_sentry_time(dt):
@@ -72,9 +66,26 @@ def _to_sentry_time(dt):
 
 
 def fetch_window(
-    event_name, token, window_start, window_end, max_errors=None, cached_limit=None
+    event_name,
+    token,
+    window_start,
+    window_end,
+    max_errors=None,
+    cached_limit=None,
+    id_lookup=None,
 ):
-    """Fetch one time-window's worth of pages, sequentially paging until done."""
+    """Fetch one time-window's worth of pages, sequentially paging until done.
+
+    Parameters
+    ----------
+    id_lookup : callable, optional
+        Function that accepts a list of event ids and returns the subset already
+        cached. When omitted, all fetched events are returned.
+    Returns
+    -------
+    tuple
+        (new_records, total_records, dataframe_of_records)
+    """
 
     max_errors = max_errors or DEFAULT_MAX_ERRORS
 
@@ -88,8 +99,6 @@ def fetch_window(
         f"?start={start_iso}&end={end_iso}"
     )
 
-    db = MongoClient().fmriprep_stats[event_name]
-    db.create_index("id", unique=True)
     cursor = None
     errors = 0
     consecutive_cached = 0
@@ -97,6 +106,7 @@ def fetch_window(
 
     new_records = 0
     total_records = 0
+    window_records = []
 
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -132,18 +142,26 @@ def fetch_window(
             for e in req.json()
             if {"key": "environment", "value": "prod"} in e["tags"]
         ]
-        new_docs = filter_new(events, db)
+        normalized = normalize_events(events)
+
+        if id_lookup:
+            ids = [e["id"] for e in normalized]
+            cached_ids = set(id_lookup(ids)) if ids else set()
+            new_docs = [e for e in normalized if e["id"] not in cached_ids]
+        else:
+            new_docs = normalized
 
         new_records += len(new_docs)
         total_records += len(events)
 
         if new_docs:
-            db.insert_many(new_docs)
+            window_records.extend(new_docs)
             consecutive_cached = 0
         else:
-            consecutive_cached += 1
-            if cached_limit and consecutive_cached >= cached_limit:
-                break
+            if id_lookup:
+                consecutive_cached += 1
+                if cached_limit and consecutive_cached >= cached_limit:
+                    break
 
         # look at Link header for next cursor or end
         link_header = req.headers.get("Link", "")
@@ -159,7 +177,7 @@ def fetch_window(
 
         cursor = next_link.get("cursor")
 
-    return new_records, total_records
+    return new_records, total_records, pd.DataFrame(window_records)
 
 
 def parallel_fetch(
@@ -171,8 +189,15 @@ def parallel_fetch(
     days_per_chunk=1,
     cached_limit=None,
     max_errors=None,
+    id_lookup=None,
 ):
-    """Scatter a series of single-day windows in parallel."""
+    """Scatter a series of single-day windows in parallel.
+
+    Returns
+    -------
+    tuple
+        (new_records, total_records, dataframe_of_records)
+    """
 
     from tqdm import tqdm
 
@@ -192,13 +217,23 @@ def parallel_fetch(
     }
 
     total_chunks = len(windows)
+    record_frames = []
     sum_new = 0
     sum_total = 0
     with ThreadPoolExecutor(max_workers=max_workers) as exe:
-        futures = [
-            exe.submit(fetch_window, event_name, token, w0, w1, **kwargs)
-            for (w0, w1) in windows
-        ]
+        futures = []
+        for (w0, w1) in windows:
+            futures.append(
+                exe.submit(
+                    fetch_window,
+                    event_name,
+                    token,
+                    w0,
+                    w1,
+                    id_lookup=id_lookup,
+                    **kwargs,
+                )
+            )
         for fut in tqdm(
             as_completed(futures),
             total=total_chunks,
@@ -206,14 +241,20 @@ def parallel_fetch(
             unit=f"{days_per_chunk} day(s)",
         ):
             try:
-                new_rec, tot_rec = fut.result()
+                new_rec, tot_rec, records = fut.result()
                 sum_new += new_rec
                 sum_total += tot_rec
+                if not records.empty:
+                    record_frames.append(records)
             except Exception:
                 print("chunk raised", sys.exc_info()[0])
 
     # final summary
     print(
         f"[{event_name}] Finished {total_chunks} chunk(s): "
-        f"{sum_new} new records inserted, {sum_total} total events fetched."
+        f"{sum_new} new records retrieved, {sum_total} total events fetched."
     )
+
+    if record_frames:
+        return sum_new, sum_total, pd.concat(record_frames, ignore_index=True)
+    return sum_new, sum_total, pd.DataFrame()
