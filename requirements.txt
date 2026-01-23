@@ -1,5 +1,6 @@
 pymongo
 pandas
+pyarrow
 numpy
 packaging
 matplotlib

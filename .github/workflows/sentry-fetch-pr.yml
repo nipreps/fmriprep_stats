@@ -20,13 +20,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Fetch previous day and print dataframe preview
+      - name: Fetch previous day and write parquet output
         run: |
           START_TIME=$(date -u -d "yesterday 00:00:00" +%Y-%m-%dT%H:%M:%S)
           END_TIME=$(date -u -d "today 00:00:00" +%Y-%m-%dT%H:%M:%S)
           python src/run.py get \
-            --event started \
+            --event failed \
             --start-date "${START_TIME}" \
             --end-date "${END_TIME}" \
-            --no-store \
-            --print-dataframe
+            --store parquet
