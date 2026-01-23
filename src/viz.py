@@ -377,9 +377,9 @@ def plot_version_stream(
         axes[ax_i].set_xlabel(f"{yr}", fontsize=18)
         year_start_index = year_end_index
 
-    totals = data.sum(axis=1).to_numpy()
-    baseline_shift = -0.5 * totals
-    y_top = 0.5 * totals.max()
+    smoothed_totals = smoothed_data.sum(axis=1)
+    baseline_shift = -0.5 * smoothed_totals
+    y_top = 0.5 * smoothed_totals.max()
     starts = {}
     for idx, label in enumerate(labels):
         series = data[label].to_numpy()
@@ -396,11 +396,14 @@ def plot_version_stream(
         return axes[-1]
 
     def _center_y(label, xpos):
-        xpos = min(max(int(xpos), 0), len(data) - 1)
-        values = data.iloc[xpos].to_numpy()
+        x_idx = np.searchsorted(xnew, xpos)
+        x_idx = min(max(x_idx, 0), len(xnew) - 1)
+        if x_idx > 0 and abs(xnew[x_idx] - xpos) > abs(xnew[x_idx - 1] - xpos):
+            x_idx -= 1
+        values = smoothed_data[x_idx]
         cum = np.cumsum(values)
-        idx = list(labels).index(label)
-        center = baseline_shift[xpos] + cum[idx] - values[idx] / 2.0
+        label_idx = list(labels).index(label)
+        center = baseline_shift[x_idx] + cum[label_idx] - values[label_idx] / 2.0
         return center
 
     left_positions = []
