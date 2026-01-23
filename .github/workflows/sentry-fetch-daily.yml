@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
+      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+      DROPBOX_UPLOAD_RETRIES: ${{ vars.DROPBOX_UPLOAD_RETRIES }}
+      DROPBOX_UPLOAD_RETRY_DELAY: ${{ vars.DROPBOX_UPLOAD_RETRY_DELAY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,3 +45,100 @@ jobs:
         with:
           name: fmriprep-stats-${{ github.run_id }}
           path: "output/*.parquet"
+
+      - name: Upload parquet files to Dropbox
+        shell: bash
+        run: |
+          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" ]]; then
+            echo "DROPBOX_APP_KEY or DROPBOX_APP_SECRET not set; skipping Dropbox upload." >&2
+            exit 0
+          fi
+
+          TOKEN_RESPONSE=$(curl --fail --silent --show-error \
+            --request POST \
+            "https://api.dropbox.com/oauth2/token" \
+            --user "${DROPBOX_APP_KEY}:${DROPBOX_APP_SECRET}" \
+            --data-urlencode "grant_type=client_credentials")
+          ACCESS_TOKEN=$(python - <<'PY'
+          import json
+          import sys
+
+          payload = json.loads(sys.argv[1])
+          token = payload.get("access_token")
+          if not token:
+              raise SystemExit("No access_token in response")
+          print(token)
+          PY
+            "${TOKEN_RESPONSE}")
+          if [[ -z "${ACCESS_TOKEN}" ]]; then
+            echo "Failed to obtain Dropbox access token." >&2
+            exit 1
+          fi
+
+          RETRIES="${DROPBOX_UPLOAD_RETRIES:-3}"
+          RETRY_DELAY="${DROPBOX_UPLOAD_RETRY_DELAY:-2}"
+          FAILED=0
+
+          shopt -s nullglob
+          FILES=(output/*.parquet)
+          if [[ ${#FILES[@]} -eq 0 ]]; then
+            echo "No parquet files found to upload." >&2
+            exit 1
+          fi
+
+          for FILE in "${FILES[@]}"; do
+            FILENAME="$(basename "${FILE}")"
+            DROPBOX_PATH="/${FILENAME}"
+            export DROPBOX_PATH
+            API_ARGS=$(python - <<'PY'
+          import json
+          import os
+
+          dropbox_path = os.environ["DROPBOX_PATH"]
+          payload = {
+              "path": dropbox_path,
+              "mode": "overwrite",
+              "autorename": False,
+              "mute": False,
+              "strict_conflict": False,
+          }
+          print(json.dumps(payload).replace('"', '\\"'))
+          PY
+            )
+
+            SUCCESS=0
+            for ATTEMPT in $(seq 1 "${RETRIES}"); do
+              RESPONSE=$(curl --silent --show-error \
+                --request POST \
+                "https://content.dropboxapi.com/2/files/upload" \
+                --header "Authorization: Bearer ${ACCESS_TOKEN}" \
+                --header "Dropbox-API-Arg: ${API_ARGS}" \
+                --header "Content-Type: application/octet-stream" \
+                --data-binary "@${FILE}" \
+                --write-out "\n%{http_code}")
+              BODY="${RESPONSE%$'\n'*}"
+              STATUS="${RESPONSE##*$'\n'}"
+              if [[ "${STATUS}" =~ ^2 ]]; then
+                echo "[Dropbox] Uploaded ${FILE} -> ${DROPBOX_PATH}."
+                SUCCESS=1
+                break
+              else
+                echo "[Dropbox] Upload attempt ${ATTEMPT}/${RETRIES} failed for ${FILE} (status ${STATUS})." >&2
+                if [[ -n "${BODY}" ]]; then
+                  echo "[Dropbox] Response: ${BODY}" >&2
+                fi
+                if [[ "${ATTEMPT}" -lt "${RETRIES}" ]]; then
+                  sleep $((RETRY_DELAY * ATTEMPT))
+                fi
+              fi
+            done
+
+            if [[ "${SUCCESS}" -ne 1 ]]; then
+              echo "[Dropbox] Failed to upload ${FILE} after ${RETRIES} attempts." >&2
+              FAILED=1
+            fi
+          done
+
+          if [[ "${FAILED}" -ne 0 ]]; then
+            exit 1
+          fi
