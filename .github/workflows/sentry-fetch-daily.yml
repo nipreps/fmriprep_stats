@@ -61,7 +61,7 @@ jobs:
             exit 0
           fi
 
-          TOKEN_RESPONSE=$(curl https://api.dropbox.com/oauth2/token \
+          TOKEN_RESPONSE=$(curl -X POST https://api.dropbox.com/oauth2/token \
             -d code=${DROPBOX_APP_ACCESS_CODE} \
             -d grant_type=authorization_code \
             -u ${DROPBOX_APP_KEY}:${DROPBOX_APP_SECRET})
