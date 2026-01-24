@@ -57,10 +57,19 @@ def _parse_date(value: str) -> date:
         return parsed.date()
 
 
-def _normalize_timestamp(value: datetime, tz: ZoneInfo) -> datetime:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(tz)
+def _coerce_datetime(value: datetime | date | str) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, time.min)
+    return datetime.fromisoformat(value)
+
+
+def _normalize_timestamp(value: datetime | date | str, tz: ZoneInfo) -> datetime:
+    coerced = _coerce_datetime(value)
+    if coerced.tzinfo is None:
+        coerced = coerced.replace(tzinfo=timezone.utc)
+    return coerced.astimezone(tz)
 
 
 def _get_collection_edge(collection, sort_direction: int) -> datetime | None:
