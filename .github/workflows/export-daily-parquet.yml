@@ -60,7 +60,7 @@ jobs:
       - name: Restore dump
         env:
           MONGO_CONTAINER: ${{ job.services.mongo.id }}
-        run: docker exec "${MONGO_CONTAINER}" mongorestore --drop /tmp/fmriprep_stats
+        run: docker exec "${MONGO_CONTAINER}" mongorestore --drop /tmp/fmriprep_stats/dump
 
       - name: Export one day
         run: |
