@@ -13,6 +13,8 @@ on:
 jobs:
   export-daily-parquet:
     runs-on: ubuntu-latest
+    env:
+      PARQUET_OUTPUT_DIR: /tmp/parquet
     services:
       mongo:
         image: mongo:6.0
@@ -65,16 +67,23 @@ jobs:
       - name: Export one day
         run: |
           python scripts/export_daily_parquet.py \
-            --output-dir /tmp/parquet \
+            --output-dir "${PARQUET_OUTPUT_DIR}" \
             --events success \
             --num-days 1
 
       - name: Export one week
         run: |
           python scripts/export_daily_parquet.py \
-            --output-dir /tmp/parquet \
+            --output-dir "${PARQUET_OUTPUT_DIR}" \
             --events success \
             --num-days 7
 
       - name: List parquet outputs
-        run: ls -la /tmp/parquet
+        run: ls -la "${PARQUET_OUTPUT_DIR}"
+
+      - name: Upload parquet artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-parquet-export
+          path: ${{ env.PARQUET_OUTPUT_DIR }}
+          retention-days: 3
