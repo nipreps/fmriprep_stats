@@ -1,0 +1,80 @@
+name: Export daily parquet
+
+on:
+  push:
+    paths:
+      - scripts/export_daily_parquet.py
+      - .github/workflows/export-daily-parquet.yml
+  pull_request:
+    paths:
+      - scripts/export_daily_parquet.py
+      - .github/workflows/export-daily-parquet.yml
+
+jobs:
+  export-daily-parquet:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Download MongoDB dump
+        env:
+          MONGODB_TEST_DUMP_URL: ${{ secrets.MONGODB_TEST_DUMP_URL }}
+        run: curl -L "${MONGODB_TEST_DUMP_URL}&dl=1" -o /tmp/fmriprep_stats.tar.gz
+
+      - name: Extract dump
+        run: |
+          mkdir -p /tmp/fmriprep_stats
+          tar -xzf /tmp/fmriprep_stats.tar.gz -C /tmp/fmriprep_stats
+
+      - name: Copy dump into MongoDB container
+        env:
+          MONGO_CONTAINER: ${{ job.services.mongo.id }}
+        run: docker cp /tmp/fmriprep_stats "${MONGO_CONTAINER}:/tmp/fmriprep_stats"
+
+      - name: Wait for MongoDB
+        env:
+          MONGO_CONTAINER: ${{ job.services.mongo.id }}
+        run: |
+          for _ in {1..30}; do
+            if docker exec "${MONGO_CONTAINER}" mongosh --eval "db.runCommand({ ping: 1 })"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Restore dump
+        env:
+          MONGO_CONTAINER: ${{ job.services.mongo.id }}
+        run: docker exec "${MONGO_CONTAINER}" mongorestore --drop /tmp/fmriprep_stats
+
+      - name: Export one day
+        run: |
+          python scripts/export_daily_parquet.py \
+            --output-dir /tmp/parquet \
+            --events success \
+            --num-days 1
+
+      - name: Export one week
+        run: |
+          python scripts/export_daily_parquet.py \
+            --output-dir /tmp/parquet \
+            --events success \
+            --num-days 7
+
+      - name: List parquet outputs
+        run: ls -la /tmp/parquet
