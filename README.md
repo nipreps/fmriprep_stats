@@ -86,3 +86,14 @@ To run it every Monday at 5 AM, add this line to your crontab:
 0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh 2>> $HOME/var/log/update_plots.err >> $HOME/var/log/update_plots.log
 ```
 
+## Daily parquet exports and parity checks
+
+`scripts/export_daily_parquet.py` exports MongoDB events into daily parquet files.
+For deterministic backfills, supply `--start-date` and `--end-date` (both in
+`YYYY-MM-DD` format). These dates are interpreted in the selected timezone
+(default: UTC). When both start and end dates are provided, they take precedence
+over `--num-days` so repeated backfills produce the same window.
+
+`scripts/parity_check_daily_parquet.py` validates a single day/event by comparing
+the MongoDB `dateCreated` count to the parquet row count for that file. It exits
+with a non-zero status on mismatch.

@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 """Export MongoDB events into daily parquet files.
 
+Deterministic export windows can be specified with ``--start-date`` and
+``--end-date``. Dates are interpreted in the selected timezone (default: UTC)
+to define day boundaries. When both ``--start-date`` and ``--end-date`` are
+provided, they take precedence and ``--num-days`` is ignored.
+
 The latest complete day is determined by looking up the maximum ``dateCreated``
 value across the requested events, truncating it to a date, and checking whether
 that timestamp falls within the current day (in the selected timezone, default
@@ -52,10 +57,19 @@ def _parse_date(value: str) -> date:
         return parsed.date()
 
 
-def _normalize_timestamp(value: datetime, tz: ZoneInfo) -> datetime:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(tz)
+def _coerce_datetime(value: datetime | date | str) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, time.min)
+    return datetime.fromisoformat(value)
+
+
+def _normalize_timestamp(value: datetime | date | str, tz: ZoneInfo) -> datetime:
+    coerced = _coerce_datetime(value)
+    if coerced.tzinfo is None:
+        coerced = coerced.replace(tzinfo=timezone.utc)
+    return coerced.astimezone(tz)
 
 
 def _get_collection_edge(collection, sort_direction: int) -> datetime | None:
@@ -144,14 +158,55 @@ def _iter_batches(cursor, batch_size: int):
         yield batch
 
 
-def _prepare_dataframe(records: list[dict]) -> pd.DataFrame:
+def _prepare_dataframe(records: list[dict], columns: list[str] | None = None) -> pd.DataFrame:
     for record in records:
         if "_id" in record:
             record["_id"] = str(record["_id"])
     frame = pd.DataFrame(records)
+    if columns is not None:
+        frame = frame.reindex(columns=columns)
     if "dateCreated" in frame.columns:
         frame["dateCreated"] = pd.to_datetime(frame["dateCreated"])
+    for column in frame.columns:
+        if column == "dateCreated":
+            continue
+        series = frame[column]
+        if series.dtype != "string":
+            frame[column] = series.map(
+                lambda value: None if pd.isna(value) else str(value)
+            ).astype("string")
     return frame
+
+
+def _collect_columns(collection, query: dict) -> list[str]:
+    columns: list[str] = []
+    seen = set()
+    for doc in collection.find(query):
+        for key in doc.keys():
+            if key not in seen:
+                columns.append(key)
+                seen.add(key)
+    return columns
+
+
+def _format_query_bound(boundary: datetime, sample: str) -> str:
+    if sample.endswith("Z"):
+        return boundary.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if re.search(r"[+-]\\d\\d:\\d\\d$", sample):
+        return boundary.astimezone(timezone.utc).isoformat()
+    return boundary.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+
+
+def _build_date_query(collection, day_start: datetime, day_end: datetime) -> dict:
+    sample_doc = collection.find_one(sort=[("dateCreated", 1)], projection={"dateCreated": 1})
+    sample_value = sample_doc.get("dateCreated") if sample_doc else None
+    if isinstance(sample_value, str):
+        start_value = _format_query_bound(day_start, sample_value)
+        end_value = _format_query_bound(day_end, sample_value)
+    else:
+        start_value = day_start.replace(tzinfo=None)
+        end_value = day_end.replace(tzinfo=None)
+    return {"dateCreated": {"$gte": start_value, "$lt": end_value}}
 
 
 def _write_parquet(collection, day: date, output_path: Path, tz: ZoneInfo) -> int:
@@ -159,17 +214,15 @@ def _write_parquet(collection, day: date, output_path: Path, tz: ZoneInfo) -> in
     day_end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz).astimezone(
         timezone.utc
     )
-    query = {
-        "dateCreated": {
-            "$gte": day_start.replace(tzinfo=None),
-            "$lt": day_end.replace(tzinfo=None),
-        }
-    }
+    query = _build_date_query(collection, day_start, day_end)
+    columns = _collect_columns(collection, query)
+    if not columns:
+        return 0
     cursor = collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
     writer = None
     total = 0
     for batch in _iter_batches(cursor, DEFAULT_BATCH_SIZE):
-        frame = _prepare_dataframe(batch)
+        frame = _prepare_dataframe(batch, columns)
         table = pa.Table.from_pandas(frame, preserve_index=False)
         if writer is None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -195,8 +248,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory to write parquet files",
     )
     parser.add_argument("--num-days", type=int, default=None, help="Number of days to export")
-    parser.add_argument("--start-date", type=_parse_date, default=None)
-    parser.add_argument("--end-date", type=_parse_date, default=None)
+    parser.add_argument(
+        "--start-date",
+        type=_parse_date,
+        default=None,
+        help="Start date (YYYY-MM-DD). Used with end-date for deterministic windows.",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=_parse_date,
+        default=None,
+        help="End date (YYYY-MM-DD). Used with start-date for deterministic windows.",
+    )
     parser.add_argument(
         "--timezone",
         default="UTC",
@@ -247,6 +310,7 @@ def main() -> int:
         return 0
 
     output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     summary = {event: {"files": 0, "records": 0} for event in events}
 
     for event in events:
@@ -273,4 +337,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
