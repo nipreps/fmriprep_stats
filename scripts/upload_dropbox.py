@@ -22,14 +22,14 @@ def _env_int(name: str, default: int) -> int:
 def main() -> int:
     app_key = os.getenv("DROPBOX_APP_KEY")
     app_secret = os.getenv("DROPBOX_APP_SECRET")
-    refresh_token = os.getenv("DROPBOX_REFRESH_TOKEN")
+    refresh_token = os.getenv("DROPBOX_APP_REFRESH_TOKEN")
     if not app_key or not app_secret or not refresh_token:
         missing = [
             name
             for name, value in (
                 ("DROPBOX_APP_KEY", app_key),
                 ("DROPBOX_APP_SECRET", app_secret),
-                ("DROPBOX_REFRESH_TOKEN", refresh_token),
+                ("DROPBOX_APP_REFRESH_TOKEN", refresh_token),
             )
             if not value
         ]

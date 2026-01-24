@@ -12,7 +12,7 @@ jobs:
       SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
       DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY || vars.DROPBOX_APP_KEY }}
       DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET || vars.DROPBOX_APP_SECRET }}
-      DROPBOX_APP_ACCESS_CODE: ${{ secrets.DROPBOX_APP_ACCESS_CODE || vars.DROPBOX_APP_ACCESS_CODE }}
+      DROPBOX_APP_REFRESH_TOKEN: ${{ secrets.DROPBOX_APP_REFRESH_TOKEN || vars.DROPBOX_APP_REFRESH_TOKEN }}
       DROPBOX_UPLOAD_RETRIES: ${{ vars.DROPBOX_UPLOAD_RETRIES }}
       DROPBOX_UPLOAD_RETRY_DELAY: ${{ vars.DROPBOX_UPLOAD_RETRY_DELAY }}
     steps:
@@ -52,24 +52,13 @@ jobs:
       - name: Upload parquet files to Dropbox
         shell: bash
         run: |
-          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" || -z "${DROPBOX_APP_ACCESS_CODE}" ]]; then
+          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" || -z "${DROPBOX_APP_REFRESH_TOKEN}" ]]; then
             MISSING=()
             if [[ -z "${DROPBOX_APP_KEY}" ]]; then MISSING+=("DROPBOX_APP_KEY"); fi
             if [[ -z "${DROPBOX_APP_SECRET}" ]]; then MISSING+=("DROPBOX_APP_SECRET"); fi
-            if [[ -z "${DROPBOX_APP_ACCESS_CODE}" ]]; then MISSING+=("DROPBOX_APP_ACCESS_CODE"); fi
+            if [[ -z "${DROPBOX_APP_REFRESH_TOKEN}" ]]; then MISSING+=("DROPBOX_APP_REFRESH_TOKEN"); fi
             echo "Dropbox credentials missing (${MISSING[*]}); skipping Dropbox upload." >&2
             exit 0
           fi
-
-          TOKEN_RESPONSE=$(curl -X POST https://api.dropbox.com/oauth2/token \
-            -d code=${DROPBOX_APP_ACCESS_CODE} \
-            -d grant_type=authorization_code \
-            -u ${DROPBOX_APP_KEY}:${DROPBOX_APP_SECRET})
-          REFRESH_TOKEN=$(echo "${TOKEN_RESPONSE}" | jq -r '.refresh_token // empty')
-          if [[ -z "${REFRESH_TOKEN}" ]]; then
-            echo "Failed to obtain Dropbox refresh token. Response: ${TOKEN_RESPONSE}" >&2
-            exit 1
-          fi
-          echo "DROPBOX_REFRESH_TOKEN=${REFRESH_TOKEN}" >> "${GITHUB_ENV}"
 
           python scripts/upload_dropbox.py
