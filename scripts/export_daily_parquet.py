@@ -167,6 +167,14 @@ def _prepare_dataframe(records: list[dict], columns: list[str] | None = None) ->
         frame = frame.reindex(columns=columns)
     if "dateCreated" in frame.columns:
         frame["dateCreated"] = pd.to_datetime(frame["dateCreated"])
+    for column in frame.columns:
+        if column == "dateCreated":
+            continue
+        series = frame[column]
+        if series.dtype != "string":
+            frame[column] = series.map(
+                lambda value: None if pd.isna(value) else str(value)
+            ).astype("string")
     return frame
 
 
