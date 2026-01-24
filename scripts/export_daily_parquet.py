@@ -317,7 +317,7 @@ def main() -> int:
         collection = db[event]
         safe_event = _sanitize_event_name(event)
         for day in days:
-            output_path = output_dir / f"{day:%Y%m%d}-{safe_event}.parquet"
+            output_path = output_dir / f"{day:%Y-%m-%d}-{safe_event}.parquet"
             logging.info("Exporting %s for %s to %s", event, day.isoformat(), output_path)
             count = _write_parquet(collection, day, output_path, tz)
             if count:
