@@ -158,14 +158,27 @@ def _iter_batches(cursor, batch_size: int):
         yield batch
 
 
-def _prepare_dataframe(records: list[dict]) -> pd.DataFrame:
+def _prepare_dataframe(records: list[dict], columns: list[str] | None = None) -> pd.DataFrame:
     for record in records:
         if "_id" in record:
             record["_id"] = str(record["_id"])
     frame = pd.DataFrame(records)
+    if columns is not None:
+        frame = frame.reindex(columns=columns)
     if "dateCreated" in frame.columns:
         frame["dateCreated"] = pd.to_datetime(frame["dateCreated"])
     return frame
+
+
+def _collect_columns(collection, query: dict) -> list[str]:
+    columns: list[str] = []
+    seen = set()
+    for doc in collection.find(query):
+        for key in doc.keys():
+            if key not in seen:
+                columns.append(key)
+                seen.add(key)
+    return columns
 
 
 def _format_query_bound(boundary: datetime, sample: str) -> str:
@@ -194,11 +207,14 @@ def _write_parquet(collection, day: date, output_path: Path, tz: ZoneInfo) -> in
         timezone.utc
     )
     query = _build_date_query(collection, day_start, day_end)
+    columns = _collect_columns(collection, query)
+    if not columns:
+        return 0
     cursor = collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
     writer = None
     total = 0
     for batch in _iter_batches(cursor, DEFAULT_BATCH_SIZE):
-        frame = _prepare_dataframe(batch)
+        frame = _prepare_dataframe(batch, columns)
         table = pa.Table.from_pandas(frame, preserve_index=False)
         if writer is None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
