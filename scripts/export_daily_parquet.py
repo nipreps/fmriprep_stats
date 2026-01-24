@@ -168,17 +168,32 @@ def _prepare_dataframe(records: list[dict]) -> pd.DataFrame:
     return frame
 
 
+def _format_query_bound(boundary: datetime, sample: str) -> str:
+    if sample.endswith("Z"):
+        return boundary.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if re.search(r"[+-]\\d\\d:\\d\\d$", sample):
+        return boundary.astimezone(timezone.utc).isoformat()
+    return boundary.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+
+
+def _build_date_query(collection, day_start: datetime, day_end: datetime) -> dict:
+    sample_doc = collection.find_one(sort=[("dateCreated", 1)], projection={"dateCreated": 1})
+    sample_value = sample_doc.get("dateCreated") if sample_doc else None
+    if isinstance(sample_value, str):
+        start_value = _format_query_bound(day_start, sample_value)
+        end_value = _format_query_bound(day_end, sample_value)
+    else:
+        start_value = day_start.replace(tzinfo=None)
+        end_value = day_end.replace(tzinfo=None)
+    return {"dateCreated": {"$gte": start_value, "$lt": end_value}}
+
+
 def _write_parquet(collection, day: date, output_path: Path, tz: ZoneInfo) -> int:
     day_start = datetime.combine(day, time.min, tzinfo=tz).astimezone(timezone.utc)
     day_end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz).astimezone(
         timezone.utc
     )
-    query = {
-        "dateCreated": {
-            "$gte": day_start.replace(tzinfo=None),
-            "$lt": day_end.replace(tzinfo=None),
-        }
-    }
+    query = _build_date_query(collection, day_start, day_end)
     cursor = collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
     writer = None
     total = 0
@@ -271,6 +286,7 @@ def main() -> int:
         return 0
 
     output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     summary = {event: {"files": 0, "records": 0} for event in events}
 
     for event in events:

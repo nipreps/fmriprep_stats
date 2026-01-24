@@ -48,6 +48,26 @@ def _day_bounds(day: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
     return day_start, day_end
 
 
+def _format_query_bound(boundary: datetime, sample: str) -> str:
+    if sample.endswith("Z"):
+        return boundary.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    if re.search(r"[+-]\\d\\d:\\d\\d$", sample):
+        return boundary.astimezone(timezone.utc).isoformat()
+    return boundary.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+
+
+def _build_date_query(collection, day_start: datetime, day_end: datetime) -> dict:
+    sample_doc = collection.find_one(sort=[("dateCreated", 1)], projection={"dateCreated": 1})
+    sample_value = sample_doc.get("dateCreated") if sample_doc else None
+    if isinstance(sample_value, str):
+        start_value = _format_query_bound(day_start, sample_value)
+        end_value = _format_query_bound(day_end, sample_value)
+    else:
+        start_value = day_start.replace(tzinfo=None)
+        end_value = day_end.replace(tzinfo=None)
+    return {"dateCreated": {"$gte": start_value, "$lt": end_value}}
+
+
 def _parquet_row_count(path: Path) -> int | None:
     if not path.exists():
         return None
@@ -104,14 +124,8 @@ def main() -> int:
         return 1
 
     day_start, day_end = _day_bounds(args.day, tz)
-    query = {
-        "dateCreated": {
-            "$gte": day_start.replace(tzinfo=None),
-            "$lt": day_end.replace(tzinfo=None),
-        }
-    }
-
     collection = client.fmriprep_stats[args.event]
+    query = _build_date_query(collection, day_start, day_end)
     mongo_count = collection.count_documents(query)
     client.close()
 
