@@ -150,26 +150,60 @@ def _prepare_dataframe(records: list[dict]) -> pd.DataFrame:
     return frame
 
 
-def _write_parquet(collection, day: date, output_path: Path, tz: ZoneInfo) -> int:
+def _day_window(day: date, tz: ZoneInfo) -> tuple[datetime, datetime]:
     day_start = datetime.combine(day, time.min, tzinfo=tz).astimezone(timezone.utc)
     day_end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=tz).astimezone(
         timezone.utc
     )
-    query = {
-        "dateCreated": {
-            "$gte": day_start.replace(tzinfo=None),
-            "$lt": day_end.replace(tzinfo=None),
-        }
-    }
+    return day_start.replace(tzinfo=None), day_end.replace(tzinfo=None)
+
+
+def _align_table_to_schema(table: pa.Table, schema: pa.Schema) -> pa.Table:
+    if table.schema == schema:
+        return table
+    columns = []
+    for field in schema:
+        if field.name in table.column_names:
+            columns.append(table[field.name])
+        else:
+            columns.append(pa.nulls(table.num_rows, type=field.type))
+    return pa.Table.from_arrays(columns, schema=schema)
+
+
+def _build_schema_for_day(collection, day: date, tz: ZoneInfo) -> pa.Schema | None:
+    day_start, day_end = _day_window(day, tz)
+    query = {"dateCreated": {"$gte": day_start, "$lt": day_end}}
+    cursor = collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
+    schema = None
+    for batch in _iter_batches(cursor, DEFAULT_BATCH_SIZE):
+        frame = _prepare_dataframe(batch)
+        table = pa.Table.from_pandas(frame, preserve_index=False)
+        schema = table.schema if schema is None else pa.unify_schemas([schema, table.schema])
+    return schema
+
+
+def _get_latest_day(collection, tz: ZoneInfo) -> date | None:
+    max_ts = _get_collection_edge(collection, -1)
+    if max_ts is None:
+        return None
+    return _normalize_timestamp(max_ts, tz).date()
+
+
+def _write_parquet(
+    collection, day: date, output_path: Path, tz: ZoneInfo, schema: pa.Schema
+) -> int:
+    day_start, day_end = _day_window(day, tz)
+    query = {"dateCreated": {"$gte": day_start, "$lt": day_end}}
     cursor = collection.find(query, batch_size=DEFAULT_BATCH_SIZE)
     writer = None
     total = 0
     for batch in _iter_batches(cursor, DEFAULT_BATCH_SIZE):
         frame = _prepare_dataframe(batch)
         table = pa.Table.from_pandas(frame, preserve_index=False)
+        table = _align_table_to_schema(table, schema)
         if writer is None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            writer = pq.ParquetWriter(output_path, table.schema)
+            writer = pq.ParquetWriter(output_path, schema)
         writer.write_table(table)
         total += len(frame)
     if writer:
@@ -248,10 +282,19 @@ def main() -> int:
     for event in events:
         collection = db[event]
         safe_event = _sanitize_event_name(event)
+        latest_day = _get_latest_day(collection, tz)
+        if latest_day is None:
+            logging.warning("No records found for %s; skipping.", event)
+            continue
+        schema = _build_schema_for_day(collection, latest_day, tz)
+        if schema is None:
+            logging.warning("No records found for %s on %s; skipping.", event, latest_day)
+            continue
+        logging.info("Using schema from latest day %s for %s", latest_day, event)
         for day in days:
             output_path = output_dir / f"{day:%Y%m%d}-{safe_event}.parquet"
             logging.info("Exporting %s for %s to %s", event, day.isoformat(), output_path)
-            count = _write_parquet(collection, day, output_path, tz)
+            count = _write_parquet(collection, day, output_path, tz, schema)
             if count:
                 summary[event]["files"] += 1
                 summary[event]["records"] += count
