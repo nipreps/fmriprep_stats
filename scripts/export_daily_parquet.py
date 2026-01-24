@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 """Export MongoDB events into daily parquet files.
 
+Deterministic export windows can be specified with ``--start-date`` and
+``--end-date``. Dates are interpreted in the selected timezone (default: UTC)
+to define day boundaries. When both ``--start-date`` and ``--end-date`` are
+provided, they take precedence and ``--num-days`` is ignored.
+
 The latest complete day is determined by looking up the maximum ``dateCreated``
 value across the requested events, truncating it to a date, and checking whether
 that timestamp falls within the current day (in the selected timezone, default
@@ -195,8 +200,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory to write parquet files",
     )
     parser.add_argument("--num-days", type=int, default=None, help="Number of days to export")
-    parser.add_argument("--start-date", type=_parse_date, default=None)
-    parser.add_argument("--end-date", type=_parse_date, default=None)
+    parser.add_argument(
+        "--start-date",
+        type=_parse_date,
+        default=None,
+        help="Start date (YYYY-MM-DD). Used with end-date for deterministic windows.",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=_parse_date,
+        default=None,
+        help="End date (YYYY-MM-DD). Used with start-date for deterministic windows.",
+    )
     parser.add_argument(
         "--timezone",
         default="UTC",
@@ -273,4 +288,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
