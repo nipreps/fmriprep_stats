@@ -41,12 +41,16 @@ jobs:
           tar -xzf /tmp/fmriprep_stats.tar.gz -C /tmp/fmriprep_stats
 
       - name: Copy dump into MongoDB container
-        run: docker cp /tmp/fmriprep_stats mongo:/tmp/fmriprep_stats
+        env:
+          MONGO_CONTAINER: ${{ job.services.mongo.id }}
+        run: docker cp /tmp/fmriprep_stats "${MONGO_CONTAINER}:/tmp/fmriprep_stats"
 
       - name: Wait for MongoDB
+        env:
+          MONGO_CONTAINER: ${{ job.services.mongo.id }}
         run: |
           for _ in {1..30}; do
-            if docker exec mongo mongosh --eval "db.runCommand({ ping: 1 })"; then
+            if docker exec "${MONGO_CONTAINER}" mongosh --eval "db.runCommand({ ping: 1 })"; then
               exit 0
             fi
             sleep 2
@@ -54,7 +58,9 @@ jobs:
           exit 1
 
       - name: Restore dump
-        run: docker exec mongo mongorestore --drop /tmp/fmriprep_stats
+        env:
+          MONGO_CONTAINER: ${{ job.services.mongo.id }}
+        run: docker exec "${MONGO_CONTAINER}" mongorestore --drop /tmp/fmriprep_stats
 
       - name: Export one day
         run: |
