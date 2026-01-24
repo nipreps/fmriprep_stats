@@ -52,10 +52,20 @@ def _parse_date(value: str) -> date:
         return parsed.date()
 
 
-def _normalize_timestamp(value: datetime, tz: ZoneInfo) -> datetime:
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(tz)
+def _coerce_datetime(value: datetime | str) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        normalized = value.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized)
+    raise TypeError(f"Unsupported timestamp type: {type(value)!r}")
+
+
+def _normalize_timestamp(value: datetime | str, tz: ZoneInfo) -> datetime:
+    parsed = _coerce_datetime(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(tz)
 
 
 def _get_collection_edge(collection, sort_direction: int) -> datetime | None:
@@ -273,4 +283,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
