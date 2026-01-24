@@ -2,7 +2,7 @@ name: Sentry fetch daily
 
 on:
   schedule:
-    - cron: "0 2 * * *"
+    - cron: "59 23 * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,6 +10,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
+      DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY || vars.DROPBOX_APP_KEY }}
+      DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET || vars.DROPBOX_APP_SECRET }}
+      DROPBOX_APP_REFRESH_TOKEN: ${{ secrets.DROPBOX_APP_REFRESH_TOKEN || vars.DROPBOX_APP_REFRESH_TOKEN }}
+      DROPBOX_UPLOAD_RETRIES: ${{ vars.DROPBOX_UPLOAD_RETRIES }}
+      DROPBOX_UPLOAD_RETRY_DELAY: ${{ vars.DROPBOX_UPLOAD_RETRY_DELAY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,7 +25,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install dropbox
 
       - name: Fetch previous day and write parquet output
         run: |
@@ -41,3 +48,17 @@ jobs:
         with:
           name: fmriprep-stats-${{ github.run_id }}
           path: "output/*.parquet"
+
+      - name: Upload parquet files to Dropbox
+        shell: bash
+        run: |
+          if [[ -z "${DROPBOX_APP_KEY}" || -z "${DROPBOX_APP_SECRET}" || -z "${DROPBOX_APP_REFRESH_TOKEN}" ]]; then
+            MISSING=()
+            if [[ -z "${DROPBOX_APP_KEY}" ]]; then MISSING+=("DROPBOX_APP_KEY"); fi
+            if [[ -z "${DROPBOX_APP_SECRET}" ]]; then MISSING+=("DROPBOX_APP_SECRET"); fi
+            if [[ -z "${DROPBOX_APP_REFRESH_TOKEN}" ]]; then MISSING+=("DROPBOX_APP_REFRESH_TOKEN"); fi
+            echo "Dropbox credentials missing (${MISSING[*]}); skipping Dropbox upload." >&2
+            exit 0
+          fi
+
+          python scripts/upload_dropbox.py
