@@ -10,6 +10,21 @@ import pandas as pd
 from pymongo import MongoClient
 
 
+def normalize_event_frame(data: pd.DataFrame, unique: bool = True) -> pd.DataFrame:
+    """Normalize event frames for plotting."""
+    if len(data) == 0:
+        raise RuntimeError("No records available for plotting.")
+
+    data = data.copy()
+    data["dateCreated"] = pd.to_datetime(data["dateCreated"])
+    data["date_minus_time"] = data["dateCreated"].apply(
+        lambda df: datetime.datetime(year=df.year, month=df.month, day=df.day)
+    )
+    if unique:
+        data = data.drop_duplicates(subset=["run_uuid"])
+    return data
+
+
 def mongo_id_lookup(event_name: str) -> Callable[[Iterable[str]], set[str]]:
     """Return a lookup function for cached event ids."""
     collection = MongoClient().fmriprep_stats[event_name]
@@ -47,13 +62,7 @@ def load_event(event_name: str, unique: bool = True) -> pd.DataFrame:
     if len(data) == 0:
         raise RuntimeError(f"No records of event '{event_name}'")
 
-    data["dateCreated"] = pd.to_datetime(data["dateCreated"])
-    data["date_minus_time"] = data["dateCreated"].apply(
-        lambda df: datetime.datetime(year=df.year, month=df.month, day=df.day)
-    )
-    if unique:
-        data = data.drop_duplicates(subset=["run_uuid"])
-    return data
+    return normalize_event_frame(data, unique=unique)
 
 
 def massage_versions(
