@@ -13,7 +13,7 @@ from matplotlib import colors as mpl_colors
 from scipy.interpolate import RBFInterpolator
 
 plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = 'Inter Tight'
+plt.rcParams['font.sans-serif'] = ['Inter Tight', 'Inter', 'Arimo', 'Liberation Sans', 'Helvetica', 'DejaVu Sans']
 
 # -----------------------------------------------------------------------------
 # Helper utilities copied from the notebook
@@ -257,7 +257,7 @@ def plot_performance(
     axes_twins[y_idx].annotate(
         f"On week {min_date[1]} of {min_date[0]}," "\nthe lowest success rate \n" f"({round(min_success[1],1)}%) was recorded.",
         xy=(min_date[1] - 0.5, round(min_success[1], 1)),
-        xytext=(xlength[-1] + 3, round(max_success[1], 1)),
+        xytext=(xlength[-1] + 20, round(max_success[1], 1)),
         xycoords="data",
         annotation_clip=False,
         color="slategray",
