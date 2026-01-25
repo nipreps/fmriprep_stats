@@ -279,6 +279,7 @@ def plot(output_dir, drop_cutoff, source, parquet_dir, compare_sources):
     if "parquet" in sources and not parquet_dir:
         click.echo("ERROR: --parquet-dir is required for parquet sources.", err=True)
         sys.exit(2)
+
     if compare_sources and not parquet_dir:
         click.echo(
             "ERROR: --parquet-dir is required when using --compare-sources.",
