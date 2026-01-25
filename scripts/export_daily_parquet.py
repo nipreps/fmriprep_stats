@@ -62,7 +62,13 @@ def _coerce_datetime(value: datetime | date | str) -> datetime:
         return value
     if isinstance(value, date):
         return datetime.combine(value, time.min)
-    return datetime.fromisoformat(value)
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return datetime.combine(date.fromisoformat(normalized), time.min)
 
 
 def _normalize_timestamp(value: datetime | date | str, tz: ZoneInfo) -> datetime:
