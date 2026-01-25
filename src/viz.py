@@ -83,6 +83,11 @@ def plot_performance(
         ]
     )["id"].count()
 
+    if len(grouped_success.index) < 3:
+        raise ValueError(
+            "plot_performance requires at least 3 weekly bins to drop the first/last "
+            f"bins, but only {len(grouped_success.index)} were found."
+        )
     indexes = grouped_success.index[1:-1]
     year_index = indexes.droplevel("week")
     years = sorted(year_index.unique())
