@@ -30,7 +30,8 @@ from datetime import datetime, timezone, timedelta
 
 import click
 from api import parallel_fetch, ISSUES, DEFAULT_MAX_ERRORS
-from db import load_event, massage_versions, mongo_id_lookup, store_events
+from data_sources import load_event as load_event_source
+from db import massage_versions, mongo_id_lookup, store_events
 from viz import plot_performance, plot_version_stream
 
 DEFAULT_DAYS_WINDOW = 90
@@ -215,24 +216,130 @@ def get(
     click.echo(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S} [Finished]")
 
 
+def _weekly_counts(dataframe):
+    return dataframe.groupby(
+        [
+            dataframe["date_minus_time"].dt.isocalendar().year,
+            dataframe["date_minus_time"].dt.isocalendar().week,
+        ]
+    )["id"].count()
+
+
+def _compare_sources(started_mongo, success_mongo, started_parquet, success_parquet):
+    mongo_started = _weekly_counts(started_mongo)
+    mongo_success = _weekly_counts(success_mongo)
+    parquet_started = _weekly_counts(started_parquet)
+    parquet_success = _weekly_counts(success_parquet)
+
+    aligned_started = mongo_started.align(parquet_started, fill_value=0)
+    aligned_success = mongo_success.align(parquet_success, fill_value=0)
+
+    started_diff = (aligned_started[0] - aligned_started[1]).abs()
+    success_diff = (aligned_success[0] - aligned_success[1]).abs()
+
+    click.echo("Comparison summary (weekly counts):")
+    click.echo(f"- Max started diff: {started_diff.max()}")
+    click.echo(f"- Max success diff: {success_diff.max()}")
+    click.echo(f"- Total started diff: {started_diff.sum()}")
+    click.echo(f"- Total success diff: {success_diff.sum()}")
+
+
 @cli.command()
-@click.option("-o", "--output-dir", type=click.Path(file_okay=False, dir_okay=True, writable=True), default=".")
+@click.option(
+    "-o",
+    "--output-dir",
+    type=click.Path(file_okay=False, dir_okay=True, writable=True),
+    default=".",
+)
 @click.option("--drop-cutoff", default=None, help="Ignore versions older than this")
-def plot(output_dir, drop_cutoff):
-    """Generate plots using records stored in MongoDB."""
+@click.option(
+    "--source",
+    type=click.Choice(["mongo", "parquet", "both"], case_sensitive=False),
+    default="mongo",
+    show_default=True,
+    help="Data source to use for plots.",
+)
+@click.option(
+    "--parquet-dir",
+    type=click.Path(file_okay=False, dir_okay=True, readable=True),
+    default=None,
+    help="Directory containing parquet files (required for parquet source).",
+)
+@click.option(
+    "--plot-type",
+    "--plot",
+    "plot_type",
+    type=click.Choice(["benchmark", "versionstream", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help=(
+        "Which plots to generate: benchmark (weekly performance), versionstream, "
+        "or both."
+    ),
+)
+@click.option(
+    "--compare-sources/--no-compare-sources",
+    default=False,
+    help="Compare aggregate counts between MongoDB and parquet sources.",
+)
+def plot(output_dir, drop_cutoff, source, parquet_dir, plot_type, compare_sources):
+    """Generate plots using records stored in MongoDB or parquet files."""
     today = datetime.now().date().strftime("%Y%m%d")
-    out_perf = os.path.join(output_dir, f"{today}_weekly.png")
-    out_ver = os.path.join(output_dir, f"{today}_versionstream.png")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    unique_started = load_event("started")
-    unique_success = load_event("success")
+    source = source.lower()
+    sources = ["mongo", "parquet"] if source == "both" else [source]
+    plot_type = plot_type.lower()
+    if "parquet" in sources and not parquet_dir:
+        click.echo("ERROR: --parquet-dir is required for parquet sources.", err=True)
+        sys.exit(2)
 
-    plot_performance(unique_started, unique_success, drop_cutoff=drop_cutoff, out_file=out_perf)
-    click.echo(f"Saved {out_perf}.")
+    if compare_sources and not parquet_dir:
+        click.echo(
+            "ERROR: --parquet-dir is required when using --compare-sources.",
+            err=True,
+        )
+        sys.exit(2)
 
-    started_v, success_v = massage_versions(unique_started, unique_success)
-    plot_version_stream(started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver)
-    click.echo(f"Saved {out_ver}")
+    for source_name in sources:
+        suffix = "" if source_name == "mongo" and source != "both" else f"_{source_name}"
+        out_perf = output_dir / f"{today}_weekly{suffix}.png"
+        out_ver = output_dir / f"{today}_versionstream{suffix}.png"
+
+        unique_started = load_event_source(
+            "started", source=source_name, parquet_dir=parquet_dir
+        )
+        unique_success = load_event_source(
+            "success", source=source_name, parquet_dir=parquet_dir
+        )
+
+        if plot_type in ("benchmark", "both"):
+            plot_performance(
+                unique_started,
+                unique_success,
+                drop_cutoff=drop_cutoff,
+                out_file=out_perf,
+            )
+            click.echo(f"Saved {out_perf}.")
+
+        if plot_type in ("versionstream", "both"):
+            started_v, success_v = massage_versions(unique_started, unique_success)
+            plot_version_stream(
+                started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver
+            )
+            click.echo(f"Saved {out_ver}")
+
+    if compare_sources:
+        started_mongo = load_event_source("started", source="mongo")
+        success_mongo = load_event_source("success", source="mongo")
+        started_parquet = load_event_source(
+            "started", source="parquet", parquet_dir=parquet_dir
+        )
+        success_parquet = load_event_source(
+            "success", source="parquet", parquet_dir=parquet_dir
+        )
+        _compare_sources(started_mongo, success_mongo, started_parquet, success_parquet)
 
 
 if __name__ == "__main__":

@@ -40,6 +40,27 @@ python src/run.py plot
 will generate the performance and version stream plots using the records stored
 in MongoDB.
 
+To generate plots from parquet snapshots stored in a single directory (files
+named `YYYY-MM-DD-<event>.parquet`), pass the source and parquet directory:
+
+```bash
+python src/run.py plot --source parquet --parquet-dir /path/to/parquet/files
+```
+
+To render plots from both sources in one run, use `--source both`. Output files
+will include `_mongo` and `_parquet` suffixes to avoid overwriting:
+
+```bash
+python src/run.py plot --source both --parquet-dir /path/to/parquet/files
+```
+
+To compare weekly aggregate counts between MongoDB and parquet, add the
+`--compare-sources` flag (this requires parquet access as well):
+
+```bash
+python src/run.py plot --source parquet --parquet-dir /path/to/parquet/files --compare-sources
+```
+
 ## MongoDB backup script
 
 `scripts/backup_mongodb.sh` dumps a MongoDB database and creates a compressed

@@ -1,6 +1,8 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 """Plotting utilities extracted from the analysis notebook."""
 
+from __future__ import annotations
+
 import datetime
 import calendar
 from packaging import version
@@ -11,7 +13,7 @@ from matplotlib import colors as mpl_colors
 from scipy.interpolate import RBFInterpolator
 
 plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = 'Inter Tight'
+plt.rcParams['font.sans-serif'] = ['Inter Tight', 'Inter', 'Arimo', 'Liberation Sans', 'Helvetica', 'DejaVu Sans']
 
 # -----------------------------------------------------------------------------
 # Helper utilities copied from the notebook
@@ -83,6 +85,11 @@ def plot_performance(
         ]
     )["id"].count()
 
+    if len(grouped_success.index) < 3:
+        raise ValueError(
+            "plot_performance requires at least 3 weekly bins to drop the first/last "
+            f"bins, but only {len(grouped_success.index)} were found."
+        )
     indexes = grouped_success.index[1:-1]
     year_index = indexes.droplevel("week")
     years = sorted(year_index.unique())
@@ -250,7 +257,7 @@ def plot_performance(
     axes_twins[y_idx].annotate(
         f"On week {min_date[1]} of {min_date[0]}," "\nthe lowest success rate \n" f"({round(min_success[1],1)}%) was recorded.",
         xy=(min_date[1] - 0.5, round(min_success[1], 1)),
-        xytext=(xlength[-1] + 1, round(max_success[1], 1)),
+        xytext=(xlength[-1] + 20, round(max_success[1], 1)),
         xycoords="data",
         annotation_clip=False,
         color="slategray",
@@ -331,8 +338,18 @@ def plot_version_stream(
     versions_started = pd.DataFrame(versions_started)
 
     versions_success = versions_success.loc[:, versions_success.sum(0) > 5000]
+    if versions_success.empty or versions_success.shape[1] == 0:
+        raise RuntimeError(
+            "plot_version_stream: no version data remaining after filter "
+            "`versions_success.sum(0) > 5000`."
+        )
 
     data = versions_success[1:-1].fillna(0.0)
+    if data.empty or data.shape[0] < 2:
+        raise RuntimeError(
+            "plot_version_stream: insufficient weekly data after slicing "
+            "`versions_success[1:-1]` for interpolation/plotting."
+        )
     xs = np.arange(len(data))
     xnew = np.linspace(0.0, len(data), num=14 * len(data))
     smoothed_data = RBFInterpolator(xs[:, np.newaxis], data.values)(xnew[:, np.newaxis])
