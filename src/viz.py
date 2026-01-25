@@ -257,7 +257,7 @@ def plot_performance(
     axes_twins[y_idx].annotate(
         f"On week {min_date[1]} of {min_date[0]}," "\nthe lowest success rate \n" f"({round(min_success[1],1)}%) was recorded.",
         xy=(min_date[1] - 0.5, round(min_success[1], 1)),
-        xytext=(xlength[-1] + 1, round(max_success[1], 1)),
+        xytext=(xlength[-1] + 3, round(max_success[1], 1)),
         xycoords="data",
         annotation_clip=False,
         color="slategray",
