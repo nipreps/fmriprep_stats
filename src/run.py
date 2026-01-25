@@ -266,16 +266,29 @@ def _compare_sources(started_mongo, success_mongo, started_parquet, success_parq
     help="Directory containing parquet files (required for parquet source).",
 )
 @click.option(
+    "--plot-type",
+    "--plot",
+    "plot_type",
+    type=click.Choice(["benchmark", "versionstream", "both"], case_sensitive=False),
+    default="both",
+    show_default=True,
+    help=(
+        "Which plots to generate: benchmark (weekly performance), versionstream, "
+        "or both."
+    ),
+)
+@click.option(
     "--compare-sources/--no-compare-sources",
     default=False,
     help="Compare aggregate counts between MongoDB and parquet sources.",
 )
-def plot(output_dir, drop_cutoff, source, parquet_dir, compare_sources):
+def plot(output_dir, drop_cutoff, source, parquet_dir, plot_type, compare_sources):
     """Generate plots using records stored in MongoDB or parquet files."""
     today = datetime.now().date().strftime("%Y%m%d")
 
     source = source.lower()
     sources = ["mongo", "parquet"] if source == "both" else [source]
+    plot_type = plot_type.lower()
     if "parquet" in sources and not parquet_dir:
         click.echo("ERROR: --parquet-dir is required for parquet sources.", err=True)
         sys.exit(2)
@@ -299,16 +312,21 @@ def plot(output_dir, drop_cutoff, source, parquet_dir, compare_sources):
             "success", source=source_name, parquet_dir=parquet_dir
         )
 
-        plot_performance(
-            unique_started, unique_success, drop_cutoff=drop_cutoff, out_file=out_perf
-        )
-        click.echo(f"Saved {out_perf}.")
+        if plot_type in ("benchmark", "both"):
+            plot_performance(
+                unique_started,
+                unique_success,
+                drop_cutoff=drop_cutoff,
+                out_file=out_perf,
+            )
+            click.echo(f"Saved {out_perf}.")
 
-        started_v, success_v = massage_versions(unique_started, unique_success)
-        plot_version_stream(
-            started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver
-        )
-        click.echo(f"Saved {out_ver}")
+        if plot_type in ("versionstream", "both"):
+            started_v, success_v = massage_versions(unique_started, unique_success)
+            plot_version_stream(
+                started_v, success_v, drop_cutoff=drop_cutoff, out_file=out_ver
+            )
+            click.echo(f"Saved {out_ver}")
 
     if compare_sources:
         started_mongo = load_event_source("started", source="mongo")
