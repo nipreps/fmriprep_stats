@@ -331,8 +331,18 @@ def plot_version_stream(
     versions_started = pd.DataFrame(versions_started)
 
     versions_success = versions_success.loc[:, versions_success.sum(0) > 5000]
+    if versions_success.empty or versions_success.shape[1] == 0:
+        raise RuntimeError(
+            "plot_version_stream: no version data remaining after filter "
+            "`versions_success.sum(0) > 5000`."
+        )
 
     data = versions_success[1:-1].fillna(0.0)
+    if data.empty or data.shape[0] < 2:
+        raise RuntimeError(
+            "plot_version_stream: insufficient weekly data after slicing "
+            "`versions_success[1:-1]` for interpolation/plotting."
+        )
     xs = np.arange(len(data))
     xnew = np.linspace(0.0, len(data), num=14 * len(data))
     smoothed_data = RBFInterpolator(xs[:, np.newaxis], data.values)(xnew[:, np.newaxis])
