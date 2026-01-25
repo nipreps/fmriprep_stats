@@ -1,6 +1,8 @@
 # emacs: -*- mode: python; py-indent-offset: 4; indent-tabs-mode: nil -*-
 """Plotting utilities extracted from the analysis notebook."""
 
+from __future__ import annotations
+
 import datetime
 import calendar
 from packaging import version
