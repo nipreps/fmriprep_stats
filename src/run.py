@@ -285,6 +285,8 @@ def _compare_sources(started_mongo, success_mongo, started_parquet, success_parq
 def plot(output_dir, drop_cutoff, source, parquet_dir, plot_type, compare_sources):
     """Generate plots using records stored in MongoDB or parquet files."""
     today = datetime.now().date().strftime("%Y%m%d")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     source = source.lower()
     sources = ["mongo", "parquet"] if source == "both" else [source]
@@ -302,8 +304,8 @@ def plot(output_dir, drop_cutoff, source, parquet_dir, plot_type, compare_source
 
     for source_name in sources:
         suffix = "" if source_name == "mongo" and source != "both" else f"_{source_name}"
-        out_perf = os.path.join(output_dir, f"{today}_weekly{suffix}.png")
-        out_ver = os.path.join(output_dir, f"{today}_versionstream{suffix}.png")
+        out_perf = output_dir / f"{today}_weekly{suffix}.png"
+        out_ver = output_dir / f"{today}_versionstream{suffix}.png"
 
         unique_started = load_event_source(
             "started", source=source_name, parquet_dir=parquet_dir
