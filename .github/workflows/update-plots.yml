@@ -31,6 +31,7 @@ jobs:
           key: parquet-${{ runner.os }}-${{ github.ref_name }}-v1
           restore-keys: |
             parquet-${{ runner.os }}-${{ github.ref_name }}-
+            parquet-${{ runner.os }}-${{ github.event.repository.default_branch }}-
 
       # Artifact fallback keeps weekly parquet snapshots for a few weeks (larger than cache)
       # so we can recover when cache misses without growing storage indefinitely.
