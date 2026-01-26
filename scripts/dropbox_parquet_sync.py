@@ -73,11 +73,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_metadata(metadata_path: Path) -> dict[str, dict[str, str | int]]:
+    if not metadata_path.exists():
+        return {}
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def write_metadata(metadata_path: Path, metadata: dict[str, dict[str, str | int]]) -> None:
+    metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
+
+
 def main() -> None:
     args = parse_args()
     parquet_dir = Path(args.parquet_dir)
     parquet_dir.mkdir(parents=True, exist_ok=True)
     dropbox_path = args.dropbox_path.rstrip("/")
+    metadata_path = parquet_dir / ".dropbox_metadata.json"
+    cached_metadata = load_metadata(metadata_path)
 
     access_token = get_access_token(args.app_key, args.app_secret, args.refresh_token)
     entries = list_folder_entries(access_token, dropbox_path)
@@ -89,10 +104,18 @@ def main() -> None:
         rel_path = entry["path_display"][len(dropbox_path) :].lstrip("/")
         local_path = parquet_dir / rel_path
         local_path.parent.mkdir(parents=True, exist_ok=True)
+        expected_rev = entry.get("rev")
         expected_size = entry.get("size")
-        if local_path.exists() and expected_size and local_path.stat().st_size == expected_size:
+        cached_entry = cached_metadata.get(dropbox_file, {})
+        if local_path.exists() and expected_rev and cached_entry.get("rev") == expected_rev:
             continue
         download_file(access_token, dropbox_file, local_path)
+        cached_metadata[dropbox_file] = {
+            "rev": expected_rev or "",
+            "size": expected_size or 0,
+        }
+
+    write_metadata(metadata_path, cached_metadata)
 
 
 if __name__ == "__main__":
