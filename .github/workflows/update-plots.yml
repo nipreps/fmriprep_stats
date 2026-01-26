@@ -3,7 +3,7 @@ name: Update plots
 on:
   schedule:
     - cron: "0 22 * * 1"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build-plots:
