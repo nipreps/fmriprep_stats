@@ -1,0 +1,86 @@
+name: Update plots
+
+on:
+  schedule:
+    - cron: "0 22 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  build-plots:
+    runs-on: ubuntu-latest
+    env:
+      PARQUET_DIR: /tmp/parquet
+      PLOTS_DIR: /tmp/plots
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache parquet downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PARQUET_DIR }}
+          key: parquet-${{ runner.os }}-${{ github.ref_name }}-v1
+          restore-keys: |
+            parquet-${{ runner.os }}-${{ github.ref_name }}-
+
+      - name: Download parquet from Dropbox
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_APP_REFRESH_TOKEN: ${{ secrets.DROPBOX_APP_REFRESH_TOKEN }}
+          DROPBOX_PARQUET_PATH: ${{ secrets.DROPBOX_PARQUET_PATH }}
+        run: |
+          python scripts/dropbox_parquet_sync.py \
+            --parquet-dir "${PARQUET_DIR}" \
+            --dropbox-path "${DROPBOX_PARQUET_PATH}" \
+            --app-key "${DROPBOX_APP_KEY}" \
+            --app-secret "${DROPBOX_APP_SECRET}" \
+            --refresh-token "${DROPBOX_APP_REFRESH_TOKEN}"
+
+      - name: Generate plots
+        run: |
+          python src/run.py plot \
+            --source parquet \
+            --parquet-dir "${PARQUET_DIR}" \
+            -o "${PLOTS_DIR}"
+
+      - name: Upload plots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-plots
+          path: ${{ env.PLOTS_DIR }}
+          retention-days: 7
+
+  publish-plots:
+    runs-on: ubuntu-latest
+    needs: build-plots
+    env:
+      PLOTS_DIR: /tmp/plots
+    steps:
+      - name: Download plots artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: weekly-plots
+          path: ${{ env.PLOTS_DIR }}
+
+      - name: Upload plots to Dropbox
+        env:
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_APP_REFRESH_TOKEN: ${{ secrets.DROPBOX_APP_REFRESH_TOKEN }}
+          DROPBOX_PLOTS_PATH: ${{ secrets.DROPBOX_PLOTS_PATH }}
+        run: |
+          python scripts/dropbox_upload_plots.py \
+            --plots-dir "${PLOTS_DIR}" \
+            --dropbox-path "${DROPBOX_PLOTS_PATH}" \
+            --app-key "${DROPBOX_APP_KEY}" \
+            --app-secret "${DROPBOX_APP_SECRET}" \
+            --refresh-token "${DROPBOX_APP_REFRESH_TOKEN}"
