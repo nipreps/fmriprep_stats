@@ -16,7 +16,7 @@ This repository contains utilities to download usage statistics of fMRIPrep from
 `src/run.py` exposes a command line interface built with Click. Before running,
 set a `SENTRY_TOKEN` environment variable with a valid token.
 
-Example usage:
+Example usage (defaults to parquet output unless `--store mongo` is provided):
 
 ```bash
 SENTRY_TOKEN=your_token python src/run.py get -m started -m success -s 2023-01-01 -u 2023-01-31
@@ -34,14 +34,18 @@ for a description of all available options.
 Running:
 
 ```bash
-python src/run.py plot
+python src/run.py plot --parquet-dir /path/to/parquet/files
 ```
 
-will generate the performance and version stream plots using the records stored
-in MongoDB.
+will generate the performance and version stream plots using parquet snapshots
+stored in the provided directory (files named `YYYY-MM-DD-<event>.parquet`).
 
-To generate plots from parquet snapshots stored in a single directory (files
-named `YYYY-MM-DD-<event>.parquet`), pass the source and parquet directory:
+MongoDB access is now opt-in: set `FMRIPREP_STATS_ENABLE_MONGO=1` when you
+explicitly need to read or write MongoDB data (for example, to compare sources
+or perform parity checks during migration).
+
+To generate plots from parquet snapshots stored in a single directory, pass
+the source and parquet directory:
 
 ```bash
 python src/run.py plot --source parquet --parquet-dir /path/to/parquet/files
@@ -55,7 +59,8 @@ python src/run.py plot --source both --parquet-dir /path/to/parquet/files
 ```
 
 To compare weekly aggregate counts between MongoDB and parquet, add the
-`--compare-sources` flag (this requires parquet access as well):
+`--compare-sources` flag (this requires parquet access as well, plus
+`FMRIPREP_STATS_ENABLE_MONGO=1`):
 
 ```bash
 python src/run.py plot --source parquet --parquet-dir /path/to/parquet/files --compare-sources
@@ -92,8 +97,9 @@ The backup script will source this file if present.
 to the `nipreps.github.io` website. The script clones the repository to a
 temporary directory (by default using `git@github.com:nipreps/nipreps.github.io.git`),
 writes the plots there, commits and pushes the changes, and removes the
-temporary clone.  You may pass an alternative repository URL as an argument.
-The script may be run from any directory.
+temporary clone.  You may pass an alternative repository URL as an argument and
+the parquet directory as the second argument (or set `PARQUET_DIR`). The script
+may be run from any directory.
 
 Make the script executable:
 
@@ -104,7 +110,7 @@ chmod +x scripts/update_plots.sh
 To run it every Monday at 5 AM, add this line to your crontab:
 
 ```
-0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh 2>> $HOME/var/log/update_plots.err >> $HOME/var/log/update_plots.log
+0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh git@github.com:nipreps/nipreps.github.io.git /path/to/parquet 2>> $HOME/var/log/update_plots.err >> $HOME/var/log/update_plots.log
 ```
 
 ## Daily parquet exports and parity checks
@@ -118,3 +124,7 @@ over `--num-days` so repeated backfills produce the same window.
 `scripts/parity_check_daily_parquet.py` validates a single day/event by comparing
 the MongoDB `dateCreated` count to the parquet row count for that file. It exits
 with a non-zero status on mismatch.
+
+When switching downstream consumers to parquet-only data, ensure you have
+completed parity checks across the full retention window before disabling
+MongoDB reads/writes to avoid silent gaps in reporting.

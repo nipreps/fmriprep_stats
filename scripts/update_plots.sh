@@ -5,12 +5,18 @@
 set -euo pipefail
 
 REPO_URL="${1:-git@github.com:nipreps/nipreps.github.io.git}"
+PARQUET_DIR="${2:-${PARQUET_DIR:-}}"
 TMP_REPO="$(mktemp -d)"
 
 cleanup() {
     rm -rf "$TMP_REPO"
 }
 trap cleanup EXIT
+
+if [[ -z "$PARQUET_DIR" ]]; then
+    echo "ERROR: PARQUET_DIR is required (pass as arg 2 or set PARQUET_DIR)." >&2
+    exit 2
+fi
 
 git clone "$REPO_URL" "$TMP_REPO"
 
@@ -20,7 +26,10 @@ mkdir -p "$ASSETS_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-$( which conda ) run -n base python src/run.py plot -o "$ASSETS_DIR"
+$( which conda ) run -n base python src/run.py plot \
+    --source parquet \
+    --parquet-dir "$PARQUET_DIR" \
+    -o "$ASSETS_DIR"
 
 cd "$TMP_REPO"
 git pull --ff-only
@@ -31,4 +40,3 @@ if ! git diff --cached --quiet; then
 else
     echo "No changes to commit."
 fi
-
