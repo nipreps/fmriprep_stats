@@ -79,7 +79,7 @@ jobs:
         with:
           name: parquet-cache
           path: ${{ env.PARQUET_DIR }}
-          retention-days: 35
+          retention-days: 30
 
       - name: Generate plots
         run: |
