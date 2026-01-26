@@ -19,6 +19,7 @@ if [[ -z "$PARQUET_DIR" ]]; then
 fi
 
 PARQUET_DIR="$(cd "$PARQUET_DIR" && pwd)"
+# Keep absolute path since we later cd into the repo root before plotting.
 
 git clone "$REPO_URL" "$TMP_REPO"
 
