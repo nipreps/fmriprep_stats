@@ -18,6 +18,8 @@ if [[ -z "$PARQUET_DIR" ]]; then
     exit 2
 fi
 
+PARQUET_DIR="$(cd "$PARQUET_DIR" && pwd)"
+
 git clone "$REPO_URL" "$TMP_REPO"
 
 ASSETS_DIR="$TMP_REPO/docs/assets"
