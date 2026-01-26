@@ -105,7 +105,7 @@ def _sanitize_event_name(event_name):
 @click.option(
     "--store",
     type=click.Choice(["mongo", "parquet"], case_sensitive=False),
-    default="mongo",
+    default="parquet",
     show_default=True,
     help="Store fetched records in MongoDB or as parquet files.",
 )
@@ -255,7 +255,7 @@ def _compare_sources(started_mongo, success_mongo, started_parquet, success_parq
 @click.option(
     "--source",
     type=click.Choice(["mongo", "parquet", "both"], case_sensitive=False),
-    default="mongo",
+    default="parquet",
     show_default=True,
     help="Data source to use for plots.",
 )

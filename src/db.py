@@ -4,10 +4,25 @@
 from __future__ import annotations
 
 import datetime
+import os
 from typing import Callable, Iterable, Tuple
 
 import pandas as pd
 from pymongo import MongoClient
+
+MONGO_FEATURE_FLAG = "FMRIPREP_STATS_ENABLE_MONGO"
+
+
+def _mongo_enabled() -> bool:
+    return os.getenv(MONGO_FEATURE_FLAG, "").lower() in {"1", "true", "yes", "on"}
+
+
+def _require_mongo_enabled() -> None:
+    if not _mongo_enabled():
+        raise RuntimeError(
+            "MongoDB access is disabled. Set "
+            f"{MONGO_FEATURE_FLAG}=1 to enable MongoDB reads/writes."
+        )
 
 
 def normalize_event_frame(data: pd.DataFrame, unique: bool = True) -> pd.DataFrame:
@@ -27,6 +42,7 @@ def normalize_event_frame(data: pd.DataFrame, unique: bool = True) -> pd.DataFra
 
 def mongo_id_lookup(event_name: str) -> Callable[[Iterable[str]], set[str]]:
     """Return a lookup function for cached event ids."""
+    _require_mongo_enabled()
     collection = MongoClient().fmriprep_stats[event_name]
     collection.create_index("id", unique=True)
 
@@ -41,6 +57,7 @@ def mongo_id_lookup(event_name: str) -> Callable[[Iterable[str]], set[str]]:
 
 def store_events(event_name: str, records: pd.DataFrame | Iterable[dict]) -> int:
     """Persist fetched records to MongoDB."""
+    _require_mongo_enabled()
     if isinstance(records, pd.DataFrame):
         docs = records.to_dict("records")
     else:
@@ -57,6 +74,7 @@ def store_events(event_name: str, records: pd.DataFrame | Iterable[dict]) -> int
 
 def load_event(event_name: str, unique: bool = True) -> pd.DataFrame:
     """Load one event collection from MongoDB."""
+    _require_mongo_enabled()
     db = MongoClient().fmriprep_stats
     data = pd.DataFrame(list(db[event_name].find()))
     if len(data) == 0:
