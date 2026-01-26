@@ -52,6 +52,13 @@ jobs:
             --parquet-dir "${PARQUET_DIR}" \
             -o "${PLOTS_DIR}"
 
+      - name: Upload parquet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-parquet
+          path: ${{ env.PARQUET_DIR }}
+          retention-days: 7
+
       - name: Upload plots artifact
         uses: actions/upload-artifact@v4
         with:
