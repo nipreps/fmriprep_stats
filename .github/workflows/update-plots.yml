@@ -25,11 +25,40 @@ jobs:
 
       - name: Cache parquet downloads
         uses: actions/cache@v4
+        id: cache-parquet
         with:
           path: ${{ env.PARQUET_DIR }}
           key: parquet-${{ runner.os }}-${{ github.ref_name }}-v1
           restore-keys: |
             parquet-${{ runner.os }}-${{ github.ref_name }}-
+            parquet-${{ runner.os }}-${{ github.event.repository.default_branch }}-
+
+      # Artifact fallback keeps weekly parquet snapshots for a few weeks (larger than cache)
+      # so we can recover when cache misses without growing storage indefinitely.
+      - name: Restore parquet from prior workflow artifact (best effort)
+        if: steps.cache-parquet.outputs.cache-hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -d "${PARQUET_DIR}" ] && [ "$(ls -A "${PARQUET_DIR}")" ]; then
+            echo "Parquet directory already populated; skipping artifact restore."
+            exit 0
+          fi
+
+          latest_run_id=$(gh api \
+            repos/${{ github.repository }}/actions/workflows/update-plots.yml/runs \
+            --jq '.workflow_runs[] | select(.conclusion == "success") | .id' \
+            --paginate | head -n 1)
+
+          if [ -z "${latest_run_id}" ]; then
+            echo "No successful prior runs found."
+            exit 0
+          fi
+
+          gh run download "${latest_run_id}" \
+            --name parquet-cache \
+            --dir "${PARQUET_DIR}"
 
       - name: Download parquet from Dropbox
         env:
@@ -44,6 +73,14 @@ jobs:
             --app-key "${DROPBOX_APP_KEY}" \
             --app-secret "${DROPBOX_APP_SECRET}" \
             --refresh-token "${DROPBOX_APP_REFRESH_TOKEN}"
+
+      # Keep parquet artifacts for ~5 weeks to match weekly cadence without ballooning storage.
+      - name: Upload parquet artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: parquet-cache
+          path: ${{ env.PARQUET_DIR }}
+          retention-days: 30
 
       - name: Generate plots
         run: |
