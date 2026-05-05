@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Iterable
 
 import requests
+
+LOG = logging.getLogger("dropbox_parquet_sync")
 
 
 def get_access_token(app_key: str, app_secret: str, refresh_token: str) -> str:
@@ -59,7 +62,13 @@ def download_file(access_token: str, dropbox_path: str, destination: Path) -> No
         headers=headers,
         timeout=300,
     )
-    response.raise_for_status()
+    if not response.ok:
+        # Surface Dropbox's specific error tag (e.g. path/not_found) which lives
+        # in the JSON body — raise_for_status() alone hides it.
+        raise requests.exceptions.HTTPError(
+            f"{response.status_code} for {dropbox_path}: {response.text or '<empty>'}",
+            response=response,
+        )
     destination.write_bytes(response.content)
 
 
@@ -86,7 +95,10 @@ def write_metadata(metadata_path: Path, metadata: dict[str, dict[str, str | int]
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def main() -> None:
+def main() -> int:
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)s %(message)s", level=logging.INFO
+    )
     args = parse_args()
     parquet_dir = Path(args.parquet_dir)
     parquet_dir.mkdir(parents=True, exist_ok=True)
@@ -95,7 +107,13 @@ def main() -> None:
     cached_metadata = load_metadata(metadata_path)
 
     access_token = get_access_token(args.app_key, args.app_secret, args.refresh_token)
-    entries = list_folder_entries(access_token, dropbox_path)
+    entries = list(list_folder_entries(access_token, dropbox_path))
+    LOG.info(
+        "Listed %d entries at Dropbox path %r", len(entries), dropbox_path or "/"
+    )
+
+    fetched = skipped = failed = 0
+    failures: list[tuple[str, str]] = []
 
     for entry in entries:
         if entry.get(".tag") != "file":
@@ -108,15 +126,45 @@ def main() -> None:
         expected_size = entry.get("size")
         cached_entry = cached_metadata.get(dropbox_file, {})
         if local_path.exists() and expected_rev and cached_entry.get("rev") == expected_rev:
+            skipped += 1
             continue
-        download_file(access_token, dropbox_file, local_path)
+        try:
+            download_file(access_token, dropbox_file, local_path)
+        except requests.exceptions.HTTPError as exc:
+            failed += 1
+            failures.append((dropbox_file, str(exc)))
+            LOG.error("download FAILED for %s: %s", dropbox_file, exc)
+            continue
         cached_metadata[dropbox_file] = {
             "rev": expected_rev or "",
             "size": expected_size or 0,
         }
+        fetched += 1
+        if fetched % 100 == 0:
+            LOG.info(
+                "progress: fetched=%d skipped=%d failed=%d",
+                fetched,
+                skipped,
+                failed,
+            )
 
     write_metadata(metadata_path, cached_metadata)
 
+    LOG.info(
+        "summary: fetched=%d skipped(cached)=%d failed=%d",
+        fetched,
+        skipped,
+        failed,
+    )
+    if failures:
+        LOG.error("download failures (%d):", len(failures))
+        for path, msg in failures[:25]:
+            LOG.error("  %s -> %s", path, msg)
+        if len(failures) > 25:
+            LOG.error("  ... and %d more", len(failures) - 25)
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
