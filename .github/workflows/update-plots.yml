@@ -124,3 +124,99 @@ jobs:
             --app-key "${DROPBOX_APP_KEY}" \
             --app-secret "${DROPBOX_APP_SECRET}" \
             --refresh-token "${DROPBOX_APP_REFRESH_TOKEN}"
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: build-plots
+    permissions:
+      contents: write
+    env:
+      PLOTS_DIR: /tmp/plots
+      # Keep this many most-recent weekly-* releases; older ones are pruned
+      # along with their tags. Bump up if the website ever needs deeper history.
+      RETENTION: 26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download plots artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: weekly-plots
+          path: ${{ env.PLOTS_DIR }}
+
+      - name: Stage stable-named copies
+        run: |
+          set -e
+          DATE=$(date -u +%Y-%m-%d)
+          ls "${PLOTS_DIR}"
+          # The CLI prefixes outputs with today's date; copy to stable names so
+          # the latest-release URL (.../releases/latest/download/<asset>) is
+          # constant for downstream consumers (nipreps.org).
+          cp "${PLOTS_DIR}/${DATE}_weekly_parquet.png"        "${PLOTS_DIR}/weekly.png"
+          cp "${PLOTS_DIR}/${DATE}_versionstream_parquet.png" "${PLOTS_DIR}/versionstream.png"
+          {
+            echo "DATE=${DATE}"
+            echo "TAG=weekly-${DATE}"
+            echo "ISO_WEEK=$(date -u +%G-W%V)"
+          } >> "$GITHUB_ENV"
+
+      - name: Heartbeat commit (resets repo-inactivity clock)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Scheduled workflows are auto-disabled after ~60 days without
+          # repository activity. A weekly file touch guarantees activity even
+          # if no human commit landed in that window.
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p .github
+          echo "${DATE}" > .github/last_weekly_run.txt
+          git add .github/last_weekly_run.txt
+          if git diff --cached --quiet; then
+            echo "No heartbeat change to commit (already at ${DATE})."
+          else
+            git commit -m "chore: weekly heartbeat ${DATE}"
+            git push origin HEAD:master
+          fi
+
+      - name: Create or update weekly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} exists; replacing assets."
+            gh release upload "${TAG}" --clobber \
+              "${PLOTS_DIR}/weekly.png" \
+              "${PLOTS_DIR}/versionstream.png"
+          else
+            gh release create "${TAG}" \
+              --title "Weekly stats — ${DATE} (${ISO_WEEK})" \
+              --notes "Automated weekly snapshot of fMRIPrep usage stats.
+
+          Stable URLs (always point at the most recent release):
+
+          - https://github.com/${{ github.repository }}/releases/latest/download/weekly.png
+          - https://github.com/${{ github.repository }}/releases/latest/download/versionstream.png" \
+              "${PLOTS_DIR}/weekly.png" \
+              "${PLOTS_DIR}/versionstream.png"
+          fi
+
+      - name: Prune old weekly releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Keep the RETENTION newest weekly-YYYY-MM-DD releases; delete the rest
+          # (including their orphaned tags). Idempotent: no-op when count<=RETENTION.
+          gh release list --limit 200 \
+            --json tagName \
+            --jq '.[] | select(.tagName | startswith("weekly-")) | .tagName' \
+            | sort -r \
+            | tail -n +$((RETENTION + 1)) \
+            | while read -r tag; do
+                echo "Pruning old release ${tag}"
+                gh release delete "${tag}" --cleanup-tag --yes
+              done
