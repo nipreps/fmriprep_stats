@@ -31,6 +31,30 @@ def _parse(vstr):
 _vparse = np.vectorize(_parse)
 
 
+def _full_weekly_index(*date_series: pd.Series) -> pd.MultiIndex:
+    """Calendar-complete ISO ``(year, week)`` index from min..max of inputs.
+
+    Weeks with zero events would otherwise be dropped by groupby and the
+    plot would paint adjacent non-empty weeks side-by-side, hiding any
+    calendar-time gap. Reindexing weekly counts against this index keeps
+    those weeks present (as zero) so the bar/line plots stay calendar-faithful.
+    """
+    bounds = pd.concat([s.dropna() for s in date_series])
+    if bounds.empty:
+        return pd.MultiIndex.from_tuples([], names=["year", "week"])
+    start, end = bounds.min(), bounds.max()
+    mondays = pd.date_range(
+        start - pd.Timedelta(days=int(start.weekday())),
+        end,
+        freq="W-MON",
+    )
+    iso = mondays.isocalendar()
+    return pd.MultiIndex.from_arrays(
+        [iso.year.astype("int64"), iso.week.astype("int64")],
+        names=["year", "week"],
+    )
+
+
 # -----------------------------------------------------------------------------
 # Plotting functions
 # -----------------------------------------------------------------------------
@@ -90,21 +114,36 @@ def plot_performance(
             "plot_performance requires at least 3 weekly bins to drop the first/last "
             f"bins, but only {len(grouped_success.index)} were found."
         )
+
+    full = _full_weekly_index(
+        unique_started["date_minus_time"], unique_success["date_minus_time"]
+    )
+    grouped_started = grouped_started.reindex(full, fill_value=0)
+    grouped_success = grouped_success.reindex(full, fill_value=0)
+    grouped_started_success = grouped_started_success.reindex(full, fill_value=0)
+
     indexes = grouped_success.index[1:-1]
     year_index = indexes.droplevel("week")
     years = sorted(year_index.unique())
     weeks_per_year = [(year_index == yr).sum() for yr in years]
 
-    success_data = grouped_success[indexes]
-    started_data = grouped_started[indexes]
+    started_data = grouped_started.loc[indexes]
+    success_data = grouped_success.loc[indexes]
 
-    abs_success_mean = success_data.values.mean()
-    success_ratio = 100 * success_data / started_data
-    success_mean = success_ratio.values.mean()
-    max_success = (np.argmax(success_ratio), success_ratio.values.max())
-    max_date = indexes[max_success[0]]
-    min_success = (np.argmin(success_ratio), success_ratio.values.min())
-    min_date = indexes[min_success[0]]
+    real = started_data > 0
+    if not real.any():
+        raise ValueError("plot_performance: no weeks with started>0 after reindex.")
+
+    abs_success_mean = success_data[real].mean()
+    success_ratio = pd.Series(np.nan, index=indexes, dtype=float)
+    success_ratio[real] = 100.0 * success_data[real] / started_data[real]
+    success_mean = float(np.nanmean(success_ratio.values))
+    max_idx = int(np.nanargmax(success_ratio.values))
+    max_success = (max_idx, float(success_ratio.iloc[max_idx]))
+    max_date = indexes[max_idx]
+    min_idx = int(np.nanargmin(success_ratio.values))
+    min_success = (min_idx, float(success_ratio.iloc[min_idx]))
+    min_date = indexes[min_idx]
 
     plt.clf()
     fig, axes = plt.subplots(
@@ -213,7 +252,7 @@ def plot_performance(
     axes[-1].annotate(
         "fMRIPrep averaged" f" {int(round(abs_success_mean, -2))}"
         "\nweekly successful runs,\n"
-        f" out of {int(round(grouped_started.values[1:-1].mean(), -2))} runs/week.",
+        f" out of {int(round(started_data[real].mean(), -2))} runs/week.",
         xy=(0 - sum(xlength[:-1]), abs_success_mean),
         xytext=(xlength[-1] + 1, abs_success_mean),
         xycoords="data",
@@ -227,7 +266,7 @@ def plot_performance(
     ).set_zorder(0)
 
     axes_twins[-1].annotate(
-        "Averaged weekly success\n" f"rate was {round(success_mean,1)}±{round(success_ratio.values.std(),0)}%.",
+        "Averaged weekly success\n" f"rate was {round(success_mean,1)}±{round(float(np.nanstd(success_ratio.values)),0)}%.",
         xy=(0 - sum(xlength[:-1]), success_mean),
         xytext=(xlength[-1] + 1, success_mean),
         xycoords="data",
@@ -305,12 +344,10 @@ def plot_version_stream(
         unique_success["run_uuid"].isin(unique_started["run_uuid"])
     ]
 
-    indexes = unique_started_success.groupby(
-        [
-            unique_started_success["date_minus_time"].dt.isocalendar().year,
-            unique_started_success["date_minus_time"].dt.isocalendar().week,
-        ]
-    )["id"].count().index
+    full = _full_weekly_index(
+        unique_started["date_minus_time"], unique_success["date_minus_time"]
+    )
+    indexes = full
     year_index = indexes.droplevel("week")
     years = sorted(year_index.unique())
     weeks_per_year = [(year_index == yr).sum() for yr in years]
@@ -334,8 +371,8 @@ def plot_version_stream(
             ]
         )["id"].count()
 
-    versions_success = pd.DataFrame(versions_success)
-    versions_started = pd.DataFrame(versions_started)
+    versions_success = pd.DataFrame(versions_success).reindex(full, fill_value=0.0)
+    versions_started = pd.DataFrame(versions_started).reindex(full, fill_value=0.0)
 
     versions_success = versions_success.loc[:, versions_success.sum(0) > 5000]
     if versions_success.empty or versions_success.shape[1] == 0:
