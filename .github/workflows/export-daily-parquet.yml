@@ -82,7 +82,7 @@ jobs:
         run: ls -la "${PARQUET_OUTPUT_DIR}"
 
       - name: Upload parquet artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: daily-parquet-export
           path: ${{ env.PARQUET_OUTPUT_DIR }}
