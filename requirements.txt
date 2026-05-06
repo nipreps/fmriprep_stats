@@ -1,13 +1,19 @@
-pymongo
-pandas
-pyarrow
-numpy
-packaging
-matplotlib
-scipy
-seaborn
-notebook
-nbconvert
-requests
-click
-tqdm
+# Pinned dependencies for the fmriprep_stats CLI and helper scripts.
+#
+# Refresh deliberately: when bumping a pin, run the full local plot pipeline
+# against the GHA parquet cache and confirm both `update-plots.yml` jobs
+# still pass before merging.
+
+pymongo==4.16.0
+pandas==3.0.0
+pyarrow==23.0.0
+numpy==2.4.1
+packaging==26.0
+matplotlib==3.10.8
+scipy==1.17.0
+seaborn==0.13.2
+notebook==7.5.3
+nbconvert==7.16.6
+requests==2.32.5
+click==8.3.1
+tqdm==4.67.1
