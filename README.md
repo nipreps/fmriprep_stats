@@ -91,28 +91,6 @@ export DBNAME="fmriprep_stats"
 
 The backup script will source this file if present.
 
-## Weekly plot update script
-
-`scripts/update_plots.sh` generates plots with `src/run.py plot` and pushes them
-to the `nipreps.github.io` website. The script clones the repository to a
-temporary directory (by default using `git@github.com:nipreps/nipreps.github.io.git`),
-writes the plots there, commits and pushes the changes, and removes the
-temporary clone.  You may pass an alternative repository URL as an argument and
-the parquet directory as the second argument (or set `PARQUET_DIR`). The script
-may be run from any directory.
-
-Make the script executable:
-
-```bash
-chmod +x scripts/update_plots.sh
-```
-
-To run it every Monday at 5 AM, add this line to your crontab:
-
-```
-0 5 * * 1 /path/to/fmriprep_stats/scripts/update_plots.sh git@github.com:nipreps/nipreps.github.io.git /path/to/parquet 2>> $HOME/var/log/update_plots.err >> $HOME/var/log/update_plots.log
-```
-
 ## Daily parquet exports and parity checks
 
 `scripts/export_daily_parquet.py` exports MongoDB events into daily parquet files.
