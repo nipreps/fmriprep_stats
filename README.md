@@ -68,15 +68,17 @@ python src/run.py plot --source parquet --parquet-dir /path/to/parquet/files --c
 
 ## MongoDB backup script
 
-`scripts/backup_mongodb.sh` dumps a MongoDB database and creates a compressed
-`db_backup_YYYY-MM-DD.tar.gz` file in a Dropbox-synced folder. The script
-starts `mongod` if it is not running and stops it again when the backup
-finishes (if it was started by the script).
+`scripts/legacy/backup_mongodb.sh` dumps a MongoDB database and creates a
+compressed `db_backup_YYYY-MM-DD.tar.gz` file in a Dropbox-synced folder.
+The script starts `mongod` if it is not running and stops it again when
+the backup finishes (if it was started by the script). It is retained
+under `scripts/legacy/` because parquet is now the source of truth; see
+`scripts/legacy/README.md` for context.
 
 Make it executable before scheduling it with `cron`:
 
 ```bash
-chmod +x scripts/backup_mongodb.sh
+chmod +x scripts/legacy/backup_mongodb.sh
 ```
 
 Store `DBNAME` (and optional credentials) in environment variables rather than
@@ -91,17 +93,18 @@ export DBNAME="fmriprep_stats"
 
 The backup script will source this file if present.
 
-## Daily parquet exports and parity checks
+## Daily parquet exports and parity checks (legacy)
 
-`scripts/export_daily_parquet.py` exports MongoDB events into daily parquet files.
-For deterministic backfills, supply `--start-date` and `--end-date` (both in
-`YYYY-MM-DD` format). These dates are interpreted in the selected timezone
-(default: UTC). When both start and end dates are provided, they take precedence
-over `--num-days` so repeated backfills produce the same window.
+`scripts/legacy/export_daily_parquet.py` exports MongoDB events into daily
+parquet files. For deterministic backfills, supply `--start-date` and
+`--end-date` (both in `YYYY-MM-DD` format). These dates are interpreted in
+the selected timezone (default: UTC). When both start and end dates are
+provided, they take precedence over `--num-days` so repeated backfills
+produce the same window.
 
-`scripts/parity_check_daily_parquet.py` validates a single day/event by comparing
-the MongoDB `dateCreated` count to the parquet row count for that file. It exits
-with a non-zero status on mismatch.
+`scripts/legacy/parity_check_daily_parquet.py` validates a single day/event
+by comparing the MongoDB `dateCreated` count to the parquet row count for
+that file. It exits with a non-zero status on mismatch.
 
 When switching downstream consumers to parquet-only data, ensure you have
 completed parity checks across the full retention window before disabling

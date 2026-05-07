@@ -22,10 +22,10 @@ python src/run.py plot --source parquet --parquet-dir /path/to/parquet
 FMRIPREP_STATS_ENABLE_MONGO=1 python src/run.py plot --source both --parquet-dir /path --compare-sources
 
 # Backfill Mongo → parquet for a deterministic window
-python scripts/export_daily_parquet.py --start-date 2024-01-01 --end-date 2024-01-08 --output-dir /path
+python scripts/legacy/export_daily_parquet.py --start-date 2024-01-01 --end-date 2024-01-08 --output-dir /path
 
 # Validate parity for one day/event (non-zero exit on mismatch)
-python scripts/parity_check_daily_parquet.py --event success --day 2024-01-01 --output-dir /path
+python scripts/legacy/parity_check_daily_parquet.py --event success --day 2024-01-01 --output-dir /path
 
 # Lint / format (no pre-commit; run manually)
 ruff check --fix
@@ -54,14 +54,14 @@ One file per day per event, named `YYYY-MM-DD-<event>.parquet`. The date in the 
 
 ### Mongo → parquet migration
 
-See `MIGRATION_RUNBOOK.md`. The scheme: backfill oldest→newest in deterministic UTC windows, validate each day/event with `parity_check_daily_parquet.py`, cut consumers over to parquet only after a full validation window passes, then disable Mongo writes. The `FMRIPREP_STATS_ENABLE_MONGO` flag is the kill switch for downstream consumers — keep new code parquet-first and only touch `db.py` Mongo paths if a Mongo-specific path is unavoidable.
+See `MIGRATION_RUNBOOK.md`. The scheme: backfill oldest→newest in deterministic UTC windows, validate each day/event with `legacy/parity_check_daily_parquet.py`, cut consumers over to parquet only after a full validation window passes, then disable Mongo writes. The `FMRIPREP_STATS_ENABLE_MONGO` flag is the kill switch for downstream consumers — keep new code parquet-first and only touch `db.py` Mongo paths if a Mongo-specific path is unavoidable.
 
 ## CI/CD (GitHub Actions)
 
 - **`sentry-fetch-daily.yml`** — daily at 23:59 UTC. Fetches yesterday's `started`/`success`/`failed` events, writes `output/YYYY-MM-DD-<event>.parquet`, uploads as artifact and to Dropbox.
 - **`sentry-fetch-pr.yml`** — runs on PRs, fetches one day of `failed` as a smoke test.
 - **`update-plots.yml`** — Mondays at 22:00 UTC. Hydrates parquet from cache → prior-run artifact (`update-plots.yml` named `parquet-cache`) → Dropbox, generates plots, uploads to Dropbox.
-- **`export-daily-parquet.yml`** — runs on changes to the export script; spins up MongoDB, restores a test dump from a secret URL, exercises `export_daily_parquet.py`.
+- **`export-daily-parquet.yml`** — runs on changes to the (legacy) export script; spins up MongoDB, restores a test dump from a secret URL, exercises `scripts/legacy/export_daily_parquet.py`.
 
 Dropbox credentials (`DROPBOX_APP_KEY`/`SECRET`/`REFRESH_TOKEN`) and `SENTRY_TOKEN` are repo secrets.
 

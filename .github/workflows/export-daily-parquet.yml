@@ -3,11 +3,11 @@ name: Export daily parquet
 on:
   push:
     paths:
-      - scripts/export_daily_parquet.py
+      - scripts/legacy/export_daily_parquet.py
       - .github/workflows/export-daily-parquet.yml
   pull_request:
     paths:
-      - scripts/export_daily_parquet.py
+      - scripts/legacy/export_daily_parquet.py
       - .github/workflows/export-daily-parquet.yml
 
 jobs:
@@ -66,14 +66,14 @@ jobs:
 
       - name: Export one day
         run: |
-          python scripts/export_daily_parquet.py \
+          python scripts/legacy/export_daily_parquet.py \
             --output-dir "${PARQUET_OUTPUT_DIR}" \
             --events success \
             --num-days 1
 
       - name: Export one week
         run: |
-          python scripts/export_daily_parquet.py \
+          python scripts/legacy/export_daily_parquet.py \
             --output-dir "${PARQUET_OUTPUT_DIR}" \
             --events success \
             --num-days 7

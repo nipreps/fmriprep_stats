@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/backup_mongodb.sh
+# scripts/legacy/backup_mongodb.sh
 # Backup MongoDB database, ensuring mongod is running.
 
 set -euo pipefail
